@@ -23,6 +23,9 @@ dist-ssr
 *.sln
 *.sw?
 
+# Claude settings
+.claude/settings.local.json
+
 # Tauri build artifacts
 src-tauri/target
 src-tauri/Cargo.lock
