@@ -2369,14 +2369,14 @@ fn trim_media(
     cmd.args(["-map", &format!("0:a:{audio_stream_index}")]);
   }
 
-  if subtitle_stream_index >= 0 {
-    cmd.args(["-map", &format!("0:{subtitle_stream_index}")]);
-  }
-
   if mode == "lossless" {
     cmd.args(["-c", "copy", "-copyts", "-avoid_negative_ts", "make_zero"]);
     if rotation_degrees != 0 {
       cmd.args(["-metadata:s:v:0", &format!("rotate={rotation_degrees}")]);
+    }
+    // Include subtitles in lossless mode
+    if subtitle_stream_index >= 0 {
+      cmd.args(["-map", &format!("0:{subtitle_stream_index}")]);
     }
   } else {
     if let Some(filter) = rotation_filter {
@@ -2399,9 +2399,10 @@ fn trim_media(
       cmd.args(["-c:a", "copy"]);
     }
 
-    if subtitle_stream_index >= 0 {
-      cmd.args(["-c:s", "copy"]);
-    }
+    // EXCLUDE subtitles in exact mode to prevent subtitle cues from extending container duration
+    // Subtitle cues with end times past the requested duration would cause the container
+    // to report a longer duration even though video/audio are correct
+    // TODO: Add subtitle filtering in future to trim subtitle cues properly
   }
 
   cmd.arg(&output_path)
