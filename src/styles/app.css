@@ -97,6 +97,10 @@ body,
   font-weight: var(--font-medium);
 }
 
+.vt-subtitle span[role="button"] {
+  pointer-events: all;
+}
+
 
 /* === SECCIONES === */
 .vt-sections {
@@ -186,6 +190,8 @@ body,
 
 .vt-sectionTitle {
   margin: 0;
+  margin-bottom: var(--space-3);
+  padding-bottom: var(--space-2);
   font-size: var(--text-sm);
   font-weight: var(--font-semibold);
   letter-spacing: 0.05em;
@@ -392,6 +398,8 @@ body,
   font-weight: var(--font-semibold);
   letter-spacing: 0.06em;
   text-transform: uppercase;
+  margin-bottom: var(--space-2);
+  display: block;
 }
 
 /* === BOTONES === */
