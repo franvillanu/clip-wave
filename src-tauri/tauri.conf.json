@@ -13,8 +13,8 @@
     "windows": [
       {
         "title": "Clip Wave",
-        "width": 800,
-        "height": 900,
+        "width": 950,
+        "height": 1050,
         "minWidth": 700,
         "minHeight": 650,
         "maxWidth": 1200,
