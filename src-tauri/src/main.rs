@@ -2355,6 +2355,10 @@ fn trim_media(
     if subtitle_stream_index >= 0 {
       cmd.args(["-c:s", "copy"]);
     }
+
+    // Add -shortest to ensure all streams end at the specified duration
+    // This prevents subtitle events from extending past the video duration
+    cmd.arg("-shortest");
   }
 
   cmd.arg(&output_path)
