@@ -38,7 +38,23 @@
             "core:default",
             "dialog:allow-open",
             "opener:allow-reveal-item-in-dir",
-            "opener:allow-open-url"
+            {
+              "identifier": "opener:allow-open-url",
+              "allow": [
+                {
+                  "url": "https://ffmpeg.org"
+                },
+                {
+                  "url": "https://www.gyan.dev/*"
+                },
+                {
+                  "url": "https://www.gnu.org/*"
+                },
+                {
+                  "url": "ms-settings:*"
+                }
+              ]
+            }
           ]
         }
       ]

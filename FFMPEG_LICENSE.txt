@@ -1,0 +1,38 @@
+ClipWave Third-Party Software Licenses
+=======================================
+
+ClipWave uses FFmpeg for video processing capabilities.
+
+FFmpeg
+------
+Website: https://ffmpeg.org
+License: GNU Lesser General Public License (LGPL) version 2.1 or later
+Copyright: FFmpeg developers and contributors
+Source Code: https://github.com/FFmpeg/FFmpeg
+
+FFmpeg is free software; you can redistribute it and/or modify it under
+the terms of the GNU Lesser General Public License as published by the
+Free Software Foundation; either version 2.1 of the License, or (at your
+option) any later version.
+
+FFmpeg is distributed in the hope that it will be useful, but WITHOUT ANY
+WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+FOR A PARTICULAR PURPOSE. See the GNU Lesser General Public License for
+more details.
+
+The full text of the LGPL 2.1 license can be found at:
+https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html
+
+---
+
+FFmpeg Windows Builds
+----------------------
+ClipWave downloads pre-compiled FFmpeg binaries for Windows from:
+Website: https://www.gyan.dev/ffmpeg/builds/
+Provided by: Gyan Doshi
+These are official FFmpeg builds compiled for Windows.
+
+---
+
+ClipWave downloads and uses pre-compiled FFmpeg binaries as separate
+executables. FFmpeg is not statically linked into the ClipWave application.

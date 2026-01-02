@@ -1682,7 +1682,44 @@ function App() {
               <img src={clipwaveLogo} alt="Clip Wave" className="vt-logo" />
               <h1 className="vt-title">Clip Wave</h1>
             </div>
-            <p className="vt-subtitle">FFmpeg cut tool (v0.1)</p>
+            <p className="vt-subtitle">
+              <span
+                onClick={async (e) => {
+                  e.stopPropagation()
+                  logUser('Opening FFmpeg website...', 'info')
+                  logDebug('FFmpeg link clicked', 'info')
+                  try {
+                    await openUrl('https://ffmpeg.org')
+                    logDebug('openUrl called successfully', 'success')
+                  } catch (err) {
+                    console.error('Failed to open FFmpeg URL:', err)
+                    logUser(`Failed to open FFmpeg website: ${String(err?.message || err)}`, 'error')
+                    logDebug(`openUrl error: ${String(err?.message || err)}`, 'error')
+                  }
+                }}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    logUser('Opening FFmpeg website (keyboard)...', 'info')
+                    openUrl('https://ffmpeg.org').catch(err => {
+                      logUser(`Failed to open FFmpeg website: ${String(err?.message || err)}`, 'error')
+                    })
+                  }
+                }}
+                style={{
+                  textDecoration: 'underline',
+                  cursor: 'pointer',
+                  display: 'inline-block',
+                  userSelect: 'none'
+                }}
+                title="FFmpeg is licensed under LGPL 2.1+ - Click to learn more"
+              >
+                FFmpeg
+              </span>
+              {' '}cut tool (v0.1)
+            </p>
           </div>
 
           {!ffmpegOk && !ffmpegOkCache && (
@@ -1693,6 +1730,24 @@ function App() {
               </div>
               <p className="vt-ffmpegBody">
                 Clip Wave cannot cut or export clips without FFmpeg. Install it once (~120MB) and Clip Wave will use it automatically.
+              </p>
+              <p className="vt-ffmpegBody" style={{ fontSize: 'var(--text-xs)', fontStyle: 'italic' }}>
+                FFmpeg is free software (LGPL 2.1+) -{' '}
+                <span
+                  onClick={() => openUrl('https://ffmpeg.org')}
+                  style={{ textDecoration: 'underline', cursor: 'pointer' }}
+                >
+                  Learn more
+                </span>
+              </p>
+              <p className="vt-ffmpegBody" style={{ fontSize: 'var(--text-xs)', fontStyle: 'italic', opacity: 0.7 }}>
+                Windows builds by{' '}
+                <span
+                  onClick={() => openUrl('https://www.gyan.dev/ffmpeg/builds/')}
+                  style={{ textDecoration: 'underline', cursor: 'pointer' }}
+                >
+                  Gyan Doshi
+                </span>
               </p>
               <p className="vt-ffmpegBody" style={{ fontSize: 'var(--text-xs)', fontStyle: 'italic' }}>
                 If you already installed FFmpeg yourself, make sure <span style={{ fontFamily: 'var(--mono)' }}>ffmpeg</span> and{' '}
@@ -2037,7 +2092,9 @@ function App() {
                 <div className="vt-controlRow">
                   <div className="vt-dualSelectRow">
                     <div className="vt-dualSelectCol">
-                      <label className="vt-miniLabel" htmlFor="vt-audioSelect">🔊 Audio</label>
+                      <label className="vt-miniLabel" htmlFor="vt-audioSelect">
+                        🔊 Audio (<span style={{ color: audioStreams.length > 0 ? 'var(--success)' : 'inherit' }}>{audioStreams.length}</span>)
+                      </label>
                       <div className="vt-selectWrap">
                         <select
                           id="vt-audioSelect"
@@ -2059,7 +2116,9 @@ function App() {
                       </div>
                     </div>
                     <div className="vt-dualSelectCol">
-                      <label className="vt-miniLabel" htmlFor="vt-subtitleSelect">📄 Subtitles</label>
+                      <label className="vt-miniLabel" htmlFor="vt-subtitleSelect">
+                        📄 Subtitles (<span style={{ color: subtitleStreams.length > 0 ? 'var(--success)' : 'inherit' }}>{subtitleStreams.length}</span>)
+                      </label>
                       <div className="vt-selectWrap">
                         <select
                           id="vt-subtitleSelect"
