@@ -108,7 +108,7 @@ body,
   flex-direction: column;
   gap: var(--space-1);
   padding: 0 var(--space-2);
-  margin-top: -4px;
+  margin-top: -16px;
   flex: 0 0 auto;
   min-height: 0;
   overflow: visible;
