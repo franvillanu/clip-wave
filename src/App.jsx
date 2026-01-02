@@ -1682,7 +1682,20 @@ function App() {
               <img src={clipwaveLogo} alt="Clip Wave" className="vt-logo" />
               <h1 className="vt-title">Clip Wave</h1>
             </div>
-            <p className="vt-subtitle">FFmpeg cut tool (v0.1)</p>
+            <p className="vt-subtitle">
+              <a
+                href="#"
+                onClick={(e) => {
+                  e.preventDefault()
+                  openUrl('https://ffmpeg.org')
+                }}
+                style={{ color: 'inherit', textDecoration: 'underline', cursor: 'pointer' }}
+                title="FFmpeg is licensed under LGPL 2.1+ - Click to learn more"
+              >
+                FFmpeg
+              </a>
+              {' '}cut tool (v0.1)
+            </p>
           </div>
 
           {!ffmpegOk && !ffmpegOkCache && (
@@ -2186,36 +2199,6 @@ function App() {
                 ))}
               </ul>
               {visibleStatusLog.length === 0 ? <div className="vt-statusEmpty">No log entries.</div> : null}
-            </div>
-          </div>
-
-          <div className="vt-footer">
-            <div className="vt-footerContent">
-              <div className="vt-credits">
-                <strong>About:</strong> ClipWave uses{' '}
-                <a
-                  href="#"
-                  onClick={(e) => {
-                    e.preventDefault()
-                    openUrl('https://ffmpeg.org')
-                  }}
-                  style={{ color: 'inherit', textDecoration: 'underline' }}
-                >
-                  FFmpeg
-                </a>
-                {' '}for video processing. FFmpeg is licensed under{' '}
-                <a
-                  href="#"
-                  onClick={(e) => {
-                    e.preventDefault()
-                    openUrl('https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html')
-                  }}
-                  style={{ color: 'inherit', textDecoration: 'underline' }}
-                >
-                  LGPL 2.1+
-                </a>
-                .
-              </div>
             </div>
           </div>
 
