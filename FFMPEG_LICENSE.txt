@@ -36,3 +36,47 @@ These are official FFmpeg builds compiled for Windows.
 
 ClipWave downloads and uses pre-compiled FFmpeg binaries as separate
 executables. FFmpeg is not statically linked into the ClipWave application.
+
+=======================================
+
+React
+-----
+Website: https://react.dev
+License: MIT License
+Copyright: Meta Platforms, Inc. and affiliates
+Source Code: https://github.com/facebook/react
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+---
+
+Tauri
+-----
+Website: https://tauri.app
+License: MIT License / Apache License 2.0
+Copyright: Tauri Programme within The Commons Conservancy
+Source Code: https://github.com/tauri-apps/tauri
+
+Licensed under either of Apache License, Version 2.0 or MIT license at your option.
+
+---
+
+Vite
+----
+Website: https://vitejs.dev
+License: MIT License
+Copyright: Evan You and Vite contributors
+Source Code: https://github.com/vitejs/vite
+
+---
+
+For a complete list of all open source components and their licenses,
+please see the package.json file in the source repository.
