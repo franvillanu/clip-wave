@@ -2283,20 +2283,28 @@ fn trim_media(
   let duration = out_seconds_f64 - in_seconds_f64;
   let duration_arg = format!("{:.6}", duration);
 
-  // CRITICAL: For lossless cuts, -ss MUST be BEFORE -i
-  // Use -accurate_seek for precise keyframe seeking
-  // Use -copyts to preserve original timestamps
-  cmd.args(["-v", "error", "-accurate_seek", "-ss"])
-    .arg(&in_time_arg);
+  cmd.args(["-v", "error"]);
+
+  // CRITICAL: Position of -ss affects precision:
+  // - Lossless: -ss BEFORE -i (fast keyframe seeking, required for stream copy)
+  // - Exact: -ss AFTER -i (frame-accurate seeking, slower but precise)
+  if mode == "lossless" {
+    cmd.args(["-accurate_seek", "-ss"]).arg(&in_time_arg);
+  }
 
   if mode == "exact" && rotation_filter.is_some() {
     // Prevent FFmpeg from auto-applying rotation so we don't rotate twice when we also apply -vf transpose.
     cmd.arg("-noautorotate");
   }
 
-  cmd.args(["-i"])
-    .arg(&input_path)
-    .args(["-t"])
+  cmd.args(["-i"]).arg(&input_path);
+
+  // For exact mode, place -ss AFTER -i for frame-accurate seeking
+  if mode == "exact" {
+    cmd.args(["-ss"]).arg(&in_time_arg);
+  }
+
+  cmd.args(["-t"])
     .arg(&duration_arg)
     .args(["-map", "0:v:0"]);
 
