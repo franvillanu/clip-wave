@@ -1683,17 +1683,13 @@ function App() {
               <h1 className="vt-title">Clip Wave</h1>
             </div>
             <p className="vt-subtitle">
-              <a
-                href="#"
-                onClick={(e) => {
-                  e.preventDefault()
-                  openUrl('https://ffmpeg.org')
-                }}
-                style={{ color: 'inherit', textDecoration: 'underline', cursor: 'pointer' }}
+              <span
+                onClick={() => openUrl('https://ffmpeg.org')}
+                style={{ textDecoration: 'underline', cursor: 'pointer' }}
                 title="FFmpeg is licensed under LGPL 2.1+ - Click to learn more"
               >
                 FFmpeg
-              </a>
+              </span>
               {' '}cut tool (v0.1)
             </p>
           </div>
@@ -1709,16 +1705,21 @@ function App() {
               </p>
               <p className="vt-ffmpegBody" style={{ fontSize: 'var(--text-xs)', fontStyle: 'italic' }}>
                 FFmpeg is free software (LGPL 2.1+) -{' '}
-                <a
-                  href="#"
-                  onClick={(e) => {
-                    e.preventDefault()
-                    openUrl('https://ffmpeg.org')
-                  }}
-                  style={{ color: 'inherit', textDecoration: 'underline' }}
+                <span
+                  onClick={() => openUrl('https://ffmpeg.org')}
+                  style={{ textDecoration: 'underline', cursor: 'pointer' }}
                 >
                   Learn more
-                </a>
+                </span>
+              </p>
+              <p className="vt-ffmpegBody" style={{ fontSize: 'var(--text-xs)', fontStyle: 'italic', opacity: 0.7 }}>
+                Windows builds by{' '}
+                <span
+                  onClick={() => openUrl('https://www.gyan.dev/ffmpeg/builds/')}
+                  style={{ textDecoration: 'underline', cursor: 'pointer' }}
+                >
+                  Gyan Doshi
+                </span>
               </p>
               <p className="vt-ffmpegBody" style={{ fontSize: 'var(--text-xs)', fontStyle: 'italic' }}>
                 If you already installed FFmpeg yourself, make sure <span style={{ fontFamily: 'var(--mono)' }}>ffmpeg</span> and{' '}
