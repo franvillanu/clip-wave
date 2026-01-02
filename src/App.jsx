@@ -2085,7 +2085,7 @@ function App() {
                   <div className="vt-dualSelectRow">
                     <div className="vt-dualSelectCol">
                       <label className="vt-miniLabel" htmlFor="vt-audioSelect">
-                        🔊 Audio (<span style={{ color: audioStreams.length > 0 ? 'rgba(140, 145, 255, 0.95)' : 'inherit' }}>{audioStreams.length}</span>)
+                        🔊 Audio (<span style={{ color: audioStreams.length > 0 ? '#86efac' : 'inherit' }}>{audioStreams.length}</span>)
                       </label>
                       <div className="vt-selectWrap">
                         <select
@@ -2109,7 +2109,7 @@ function App() {
                     </div>
                     <div className="vt-dualSelectCol">
                       <label className="vt-miniLabel" htmlFor="vt-subtitleSelect">
-                        📄 Subtitles (<span style={{ color: subtitleStreams.length > 0 ? 'rgba(140, 145, 255, 0.95)' : 'inherit' }}>{subtitleStreams.length}</span>)
+                        📄 Subtitles (<span style={{ color: subtitleStreams.length > 0 ? '#86efac' : 'inherit' }}>{subtitleStreams.length}</span>)
                       </label>
                       <div className="vt-selectWrap">
                         <select
