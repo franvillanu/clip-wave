@@ -2355,6 +2355,10 @@ fn trim_media(
     .stdout(Stdio::piped())
     .stderr(Stdio::piped());
 
+  // Debug: Log the actual FFmpeg command being executed
+  eprintln!("[DEBUG] FFmpeg command: {:?}", cmd);
+  eprintln!("[DEBUG] Mode: {}, In: {}, Out: {}, Duration: {}", mode, in_time_arg, out_time, duration_arg);
+
   let output = cmd
     .output()
     .map_err(|e| {
