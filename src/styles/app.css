@@ -787,7 +787,7 @@ body,
   overflow-wrap: anywhere;
   width: calc(100% - (var(--space-2) * 2));
   flex: 0 0 auto;
-  height: 360px;
+  height: 280px;
   overflow: hidden;
   display: flex;
   flex-direction: column;
