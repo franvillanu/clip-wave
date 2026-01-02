@@ -2378,10 +2378,6 @@ fn trim_media(
     if rotation_degrees != 0 {
       cmd.args(["-metadata:s:v:0", &format!("rotate={rotation_degrees}")]);
     }
-    // Add -shortest to prevent subtitle streams from extending past video duration
-    if subtitle_stream_index >= 0 {
-      cmd.arg("-shortest");
-    }
   } else {
     if let Some(filter) = rotation_filter {
       cmd.arg("-vf").arg(filter);
@@ -2406,10 +2402,6 @@ fn trim_media(
     if subtitle_stream_index >= 0 {
       cmd.args(["-c:s", "copy"]);
     }
-
-    // Add -shortest to ensure all streams end at the specified duration
-    // This prevents subtitle events from extending past the video duration
-    cmd.arg("-shortest");
   }
 
   cmd.arg(&output_path)
