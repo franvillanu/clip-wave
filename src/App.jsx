@@ -2064,7 +2064,7 @@ function App() {
                 <div className="vt-controlRow">
                   <div className="vt-dualSelectRow">
                     <div className="vt-dualSelectCol">
-                      <label className="vt-miniLabel" htmlFor="vt-audioSelect">🔊 Audio</label>
+                      <label className="vt-miniLabel" htmlFor="vt-audioSelect">🔊 Audio ({audioStreams.length})</label>
                       <div className="vt-selectWrap">
                         <select
                           id="vt-audioSelect"
@@ -2086,7 +2086,7 @@ function App() {
                       </div>
                     </div>
                     <div className="vt-dualSelectCol">
-                      <label className="vt-miniLabel" htmlFor="vt-subtitleSelect">📄 Subtitles</label>
+                      <label className="vt-miniLabel" htmlFor="vt-subtitleSelect">📄 Subtitles ({subtitleStreams.length})</label>
                       <div className="vt-selectWrap">
                         <select
                           id="vt-subtitleSelect"
