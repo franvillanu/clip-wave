@@ -74,8 +74,10 @@ body,
 .vt-logo {
   height: 56px;
   width: auto;
+  max-width: 100%;
   object-fit: contain;
   flex-shrink: 0;
+  aspect-ratio: auto;
 }
 
 .vt-title {
@@ -1515,6 +1517,66 @@ body,
   .vt-status {
     padding: var(--space-3);
     height: 323px;
+  }
+}
+
+/* Small screens (1280x720 and below) */
+@media (max-width: 1280px) or (max-height: 720px) {
+  .vt-logo {
+    height: 44px;
+    max-width: 100%;
+    object-fit: contain;
+  }
+
+  .vt-title {
+    font-size: 1.5rem;
+  }
+
+  .vt-card {
+    padding: var(--space-2);
+    gap: var(--space-2);
+  }
+
+  .vt-section {
+    padding: var(--space-2);
+  }
+
+  .vt-status {
+    height: 280px;
+  }
+}
+
+/* Very small screens (below 800px width or 650px height) */
+@media (max-width: 800px) or (max-height: 650px) {
+  .vt-root {
+    padding: var(--space-2);
+  }
+
+  .vt-logo {
+    height: 36px;
+    max-width: 100%;
+    object-fit: contain;
+  }
+
+  .vt-title {
+    font-size: 1.25rem;
+  }
+
+  .vt-card {
+    padding: var(--space-2);
+    gap: var(--space-1);
+  }
+
+  .vt-section {
+    padding: var(--space-2);
+  }
+
+  .vt-status {
+    height: 240px;
+  }
+
+  .vt-header {
+    gap: var(--space-2);
   }
 }
 
