@@ -2280,7 +2280,9 @@ fn trim_media(
 
   // For millisecond precision, pass time as decimal seconds (e.g., "3.170")
   let in_time_arg = format!("{:.6}", in_seconds_f64);  // Use microsecond precision
-  let out_time_arg = format!("{:.6}", out_seconds_f64);  // Use -to instead of -t for accuracy
+  let out_time_arg = format!("{:.6}", out_seconds_f64);
+  let duration = out_seconds_f64 - in_seconds_f64;
+  let duration_arg = format!("{:.6}", duration);
 
   cmd.args(["-v", "error"]);
 
@@ -2303,10 +2305,15 @@ fn trim_media(
     cmd.args(["-ss"]).arg(&in_time_arg);
   }
 
-  // Use -to (end time) instead of -t (duration) for more accurate cutting
-  cmd.args(["-to"])
-    .arg(&out_time_arg)
-    .args(["-map", "0:v:0"]);
+  // CRITICAL: When -ss is AFTER -i (exact mode), use -t (duration)
+  // When -ss is BEFORE -i (lossless mode), use -to (end timestamp)
+  if mode == "exact" {
+    cmd.args(["-t"]).arg(&duration_arg);
+  } else {
+    cmd.args(["-to"]).arg(&out_time_arg);
+  }
+
+  cmd.args(["-map", "0:v:0"]);
 
   if audio_stream_index < 0 {
     cmd.arg("-an");
@@ -2358,6 +2365,17 @@ fn trim_media(
   // Debug: Log the actual FFmpeg command being executed
   eprintln!("[DEBUG] FFmpeg command: {:?}", cmd);
   eprintln!("[DEBUG] Mode: {}, In: {}, Out: {}", mode, in_time_arg, out_time_arg);
+
+  // Also write to a debug file
+  if let Ok(mut f) = std::fs::OpenOptions::new()
+    .create(true)
+    .append(true)
+    .open("C:\\Users\\Fran\\Documents\\ffmpeg_debug.txt") {
+    use std::io::Write;
+    let _ = writeln!(f, "\n[{}] Mode: {}", chrono::Local::now().format("%Y-%m-%d %H:%M:%S"), mode);
+    let _ = writeln!(f, "Command: {:?}", cmd);
+    let _ = writeln!(f, "In: {} -> Out: {}", in_time_arg, out_time_arg);
+  }
 
   let output = cmd
     .output()
