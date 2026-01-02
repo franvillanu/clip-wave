@@ -463,6 +463,8 @@ function App() {
     nextKeyframeTime: null,
     nextKeyframeDelta: null,
     nextKeyframeSeconds: null,
+    endShiftSeconds: null,
+    outKeyframeTime: null,
   })
   const [losslessTipExpanded, setLosslessTipExpanded] = useState(false)
 
@@ -1197,14 +1199,20 @@ function App() {
         })
 
         try {
-          const pre = await invoke('lossless_preflight', { inputPath, inTime, ffmpegBinDir })
+          const pre = await invoke('lossless_preflight', { inputPath, inTime, outTime, ffmpegBinDir })
           if (losslessPreflightReqRef.current !== requestId) return
 
           const shift = typeof pre?.start_shift_seconds === 'number' ? pre.start_shift_seconds : null
           const keyframe = typeof pre?.nearest_keyframe_seconds === 'number' ? pre.nearest_keyframe_seconds : null
           const nextKeyframe = typeof pre?.next_keyframe_seconds === 'number' ? pre.next_keyframe_seconds : null
+          const endShift = typeof pre?.end_shift_seconds === 'number' ? pre.end_shift_seconds : null
+          const outKeyframe = typeof pre?.out_nearest_keyframe_seconds === 'number' ? pre.out_nearest_keyframe_seconds : null
 
-          if (shift != null && shift > 0.0005 && keyframe != null) {
+          // Check if EITHER IN or OUT doesn't align with keyframes
+          const hasInMisalignment = shift != null && shift > 0.0005
+          const hasOutMisalignment = endShift != null && endShift > 0.0005
+
+          if ((hasInMisalignment || hasOutMisalignment) && keyframe != null) {
             const keyframeLabel = secondsToTimeRounded(keyframe)
             const nextLabel = nextKeyframe != null ? secondsToTimeRounded(nextKeyframe) : null
             const nextDelta =
@@ -1213,6 +1221,7 @@ function App() {
                 : null
 
             // Transition to report view
+            const outKeyframeLabel = outKeyframe != null ? secondsToTimeRounded(outKeyframe) : null
             setLosslessModal({
               open: true,
               checking: false,
@@ -1224,6 +1233,8 @@ function App() {
               nextKeyframeTime: nextLabel,
               nextKeyframeDelta: nextDelta,
               nextKeyframeSeconds: nextKeyframe,
+              endShiftSeconds: endShift,
+              outKeyframeTime: outKeyframeLabel,
               message: '',
             })
             return
@@ -1544,13 +1555,18 @@ function App() {
                     </p>
                   </div>
                   <div className={`vt-modalBody vt-losslessReport ${losslessModal.shiftSeconds != null && losslessModal.shiftSeconds > 0.0005 ? '' : 'vt-losslessReportSuccess'}`}>
-                    <div className={`vt-losslessWarning ${losslessModal.shiftSeconds != null && losslessModal.shiftSeconds > 0.0005 ? '' : 'vt-losslessWarningSuccess'}`}>
+                    <div className={`vt-losslessWarning ${(losslessModal.shiftSeconds != null && losslessModal.shiftSeconds > 0.0005) || (losslessModal.endShiftSeconds != null && losslessModal.endShiftSeconds > 0.0005) ? '' : 'vt-losslessWarningSuccess'}`}>
                       <p><strong>Lossless mode can only cut at keyframe positions.</strong></p>
                       {losslessModal.shiftSeconds != null && losslessModal.shiftSeconds > 0.0005 ? (
-                        <p>Your requested IN time doesn't align with a keyframe, so the clip will start earlier.</p>
+                        <p>• Your requested IN time doesn't align with a keyframe, so the clip will start earlier.</p>
                       ) : (
                         <p className="vt-losslessSuccess">✓ Your requested IN time aligns perfectly with a keyframe!</p>
                       )}
+                      {losslessModal.endShiftSeconds != null && losslessModal.endShiftSeconds > 0.0005 ? (
+                        <p>• Your requested OUT time doesn't align with a keyframe, so the clip will end later (≈{formatDuration(losslessModal.endShiftSeconds)} extra).</p>
+                      ) : losslessModal.endShiftSeconds != null ? (
+                        <p className="vt-losslessSuccess">✓ Your requested OUT time aligns perfectly with a keyframe!</p>
+                      ) : null}
                     </div>
 
                     <div className="vt-losslessComparison">
@@ -1568,18 +1584,26 @@ function App() {
                       <div className="vt-losslessComparisonRow">
                         <div className="vt-losslessLabel">Actual Result</div>
                         <div className="vt-losslessTimeRange">
-                          <span className="vt-losslessTime vt-losslessHighlight">
+                          <span className={`vt-losslessTime ${losslessModal.shiftSeconds != null && losslessModal.shiftSeconds > 0.0005 ? 'vt-losslessHighlight' : ''}`}>
                             {losslessModal.keyframeTime}
                           </span>
                           <span className="vt-losslessArrow">→</span>
-                          <span className="vt-losslessTime">{losslessModal.outTime}</span>
+                          <span className={`vt-losslessTime ${losslessModal.endShiftSeconds != null && losslessModal.endShiftSeconds > 0.0005 ? 'vt-losslessHighlight' : ''}`}>
+                            {losslessModal.endShiftSeconds != null && losslessModal.endShiftSeconds > 0.0005 && losslessModal.outKeyframeTime ? losslessModal.outKeyframeTime : losslessModal.outTime}
+                          </span>
                         </div>
                       </div>
 
-                      {losslessModal.shiftSeconds != null && (
+                      {losslessModal.shiftSeconds != null && losslessModal.shiftSeconds > 0.0005 && (
                         <div className="vt-losslessImpact">
                           <span className="vt-losslessImpactLabel">Extra footage at start:</span>
                           <span className="vt-losslessImpactValue">{formatDuration(losslessModal.shiftSeconds)}</span>
+                        </div>
+                      )}
+                      {losslessModal.endShiftSeconds != null && losslessModal.endShiftSeconds > 0.0005 && (
+                        <div className="vt-losslessImpact">
+                          <span className="vt-losslessImpactLabel">Extra footage at end:</span>
+                          <span className="vt-losslessImpactValue">{formatDuration(losslessModal.endShiftSeconds)}</span>
                         </div>
                       )}
                     </div>

@@ -95,6 +95,9 @@ struct LosslessPreflightResult {
   nearest_keyframe_seconds: Option<f64>,
   next_keyframe_seconds: Option<f64>,
   start_shift_seconds: Option<f64>,
+  out_time_seconds: f64,
+  out_nearest_keyframe_seconds: Option<f64>,
+  end_shift_seconds: Option<f64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -1855,18 +1858,19 @@ fn run_ffprobe_keyframes(
 }
 
 #[tauri::command]
-async fn lossless_preflight(input_path: String, in_time: String, ffmpeg_bin_dir: String) -> Result<LosslessPreflightResult, String> {
-  tauri::async_runtime::spawn_blocking(move || lossless_preflight_sync(input_path, in_time, ffmpeg_bin_dir))
+async fn lossless_preflight(input_path: String, in_time: String, out_time: String, ffmpeg_bin_dir: String) -> Result<LosslessPreflightResult, String> {
+  tauri::async_runtime::spawn_blocking(move || lossless_preflight_sync(input_path, in_time, out_time, ffmpeg_bin_dir))
     .await
     .map_err(|e| format!("lossless_preflight failed: {e}"))?
 }
 
-fn lossless_preflight_sync(input_path: String, in_time: String, ffmpeg_bin_dir: String) -> Result<LosslessPreflightResult, String> {
+fn lossless_preflight_sync(input_path: String, in_time: String, out_time: String, ffmpeg_bin_dir: String) -> Result<LosslessPreflightResult, String> {
   ensure_input_file_exists(&input_path)?;
   validate_ffmpeg_bin_dir(&ffmpeg_bin_dir)?;
 
   // Use parse_hh_mm_ss_with_millis to preserve fractional seconds (e.g., 3.170)
   let in_seconds = parse_hh_mm_ss_with_millis(&in_time)?;
+  let out_seconds = parse_hh_mm_ss_with_millis(&out_time)?;
 
   let (_ffmpeg_path, ffprobe_path, _ffmpeg_bin_dir_used) =
     resolve_ffmpeg_binaries_with_fallback(&ffmpeg_bin_dir);
@@ -1877,6 +1881,9 @@ fn lossless_preflight_sync(input_path: String, in_time: String, ffmpeg_bin_dir: 
       nearest_keyframe_seconds: Some(0.0),
       next_keyframe_seconds: Some(0.0),
       start_shift_seconds: Some(0.0),
+      out_time_seconds: out_seconds,
+      out_nearest_keyframe_seconds: None,
+      end_shift_seconds: None,
     });
   }
 
@@ -1913,11 +1920,51 @@ fn lossless_preflight_sync(input_path: String, in_time: String, ffmpeg_bin_dir: 
     }
   });
 
+  // Check keyframes around OUT time
+  let mut out_nearest: Option<f64> = None;
+  for w in windows {
+    let start = (out_seconds - w).max(0.0);
+    let read_intervals = format!("{start}%{out_seconds}");
+    let mut times = run_ffprobe_keyframes(&ffprobe_path, &input_path, &read_intervals)?;
+    times.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    if let Some(last) = times.last().copied() {
+      if last <= out_seconds + 1e-6 {
+        out_nearest = Some(last);
+        break;
+      }
+    }
+  }
+
+  // If no keyframe found before/at OUT, find the next keyframe after OUT
+  if out_nearest.is_none() || out_nearest.map(|kf| (out_seconds - kf).abs() > 1e-6).unwrap_or(true) {
+    for w in windows {
+      let end = out_seconds + w;
+      let read_intervals = format!("{out_seconds}%{end}");
+      let mut times = run_ffprobe_keyframes(&ffprobe_path, &input_path, &read_intervals)?;
+      times.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+      if let Some(first) = times.into_iter().find(|t| *t >= out_seconds - 1e-6) {
+        out_nearest = Some(first);
+        break;
+      }
+    }
+  }
+
+  let end_shift_seconds = out_nearest.map(|kf| {
+    if kf >= out_seconds {
+      (kf - out_seconds).max(0.0)
+    } else {
+      0.0
+    }
+  });
+
   Ok(LosslessPreflightResult {
     in_time_seconds: in_seconds,
     nearest_keyframe_seconds: nearest,
     next_keyframe_seconds: next,
     start_shift_seconds,
+    out_time_seconds: out_seconds,
+    out_nearest_keyframe_seconds: out_nearest,
+    end_shift_seconds,
   })
 }
 
@@ -2330,6 +2377,10 @@ fn trim_media(
     cmd.args(["-c", "copy", "-copyts", "-avoid_negative_ts", "make_zero"]);
     if rotation_degrees != 0 {
       cmd.args(["-metadata:s:v:0", &format!("rotate={rotation_degrees}")]);
+    }
+    // Add -shortest to prevent subtitle streams from extending past video duration
+    if subtitle_stream_index >= 0 {
+      cmd.arg("-shortest");
     }
   } else {
     if let Some(filter) = rotation_filter {
