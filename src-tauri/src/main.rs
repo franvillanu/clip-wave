@@ -2399,10 +2399,13 @@ fn trim_media(
       cmd.args(["-c:a", "copy"]);
     }
 
-    // EXCLUDE subtitles in exact mode to prevent subtitle cues from extending container duration
-    // Subtitle cues with end times past the requested duration would cause the container
-    // to report a longer duration even though video/audio are correct
-    // TODO: Add subtitle filtering in future to trim subtitle cues properly
+    // Include subtitles in exact mode, but re-encode them (don't use -c:s copy)
+    // Re-encoding forces FFmpeg to trim subtitle cues to the requested duration
+    // Using -c:s copy would preserve subtitle cue end times, extending container duration
+    if subtitle_stream_index >= 0 {
+      cmd.args(["-map", &format!("0:{subtitle_stream_index}")]);
+      // Don't specify -c:s - let FFmpeg re-encode subtitles to trim cues properly
+    }
   }
 
   cmd.arg(&output_path)
