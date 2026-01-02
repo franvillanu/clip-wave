@@ -1695,6 +1695,19 @@ function App() {
                 Clip Wave cannot cut or export clips without FFmpeg. Install it once (~120MB) and Clip Wave will use it automatically.
               </p>
               <p className="vt-ffmpegBody" style={{ fontSize: 'var(--text-xs)', fontStyle: 'italic' }}>
+                FFmpeg is free software (LGPL 2.1+) -{' '}
+                <a
+                  href="#"
+                  onClick={(e) => {
+                    e.preventDefault()
+                    openUrl('https://ffmpeg.org')
+                  }}
+                  style={{ color: 'inherit', textDecoration: 'underline' }}
+                >
+                  Learn more
+                </a>
+              </p>
+              <p className="vt-ffmpegBody" style={{ fontSize: 'var(--text-xs)', fontStyle: 'italic' }}>
                 If you already installed FFmpeg yourself, make sure <span style={{ fontFamily: 'var(--mono)' }}>ffmpeg</span> and{' '}
                 <span style={{ fontFamily: 'var(--mono)' }}>ffprobe</span> are on your PATH, then click Check again.
               </p>
@@ -2173,6 +2186,36 @@ function App() {
                 ))}
               </ul>
               {visibleStatusLog.length === 0 ? <div className="vt-statusEmpty">No log entries.</div> : null}
+            </div>
+          </div>
+
+          <div className="vt-footer">
+            <div className="vt-footerContent">
+              <div className="vt-credits">
+                <strong>About:</strong> ClipWave uses{' '}
+                <a
+                  href="#"
+                  onClick={(e) => {
+                    e.preventDefault()
+                    openUrl('https://ffmpeg.org')
+                  }}
+                  style={{ color: 'inherit', textDecoration: 'underline' }}
+                >
+                  FFmpeg
+                </a>
+                {' '}for video processing. FFmpeg is licensed under{' '}
+                <a
+                  href="#"
+                  onClick={(e) => {
+                    e.preventDefault()
+                    openUrl('https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html')
+                  }}
+                  style={{ color: 'inherit', textDecoration: 'underline' }}
+                >
+                  LGPL 2.1+
+                </a>
+                .
+              </div>
             </div>
           </div>
 
