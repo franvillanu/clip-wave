@@ -1,0 +1,102 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+    <Product Id="{03F68FF7-6F79-48E4-AAB2-579A51DA5C6F}" Codepage="1252" Language="1033" Manufacturer="clipwave" Name="Clip Wave" UpgradeCode="{394F7BCD-E1E2-5C38-9BEA-8E24A2A2A81E}" Version="0.2.1">
+        <Package Comments="This installer database contains the logic and data required to install Clip Wave." Compressed="yes" Description="Clip Wave" InstallerVersion="450" Languages="0" Manufacturer="clipwave" Platform="x64" />
+        <CustomAction Id="LaunchApplication" FileKey="Path" ExeCommand="[LAUNCHAPPARGS]" Return="asyncNoWait" />
+        <CustomAction Id="SetARPNOMODIFY" Property="ARPNOMODIFY" Value="1" />
+        <CustomAction Id="UninstallCleanupTouch" Directory="TempFolder" ExeCommand="cmd.exe /c echo ClipWave uninstall cleanup started&gt;&gt; &quot;[TempFolder]ClipWave.uninstall-touch.txt&quot;" Return="ignore" Execute="deferred" />
+        <CustomAction Id="RunUninstallCleanupUser" Directory="TempFolder" ExeCommand="powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File &quot;[INSTALLDIR]uninstall-cleanup.ps1&quot; -Target &quot;[APPDATADIR]&quot; -LogPath &quot;[TempFolder]ClipWave.uninstall-cleanup.log&quot;" Return="ignore" Execute="deferred" />
+        <CustomAction Id="DownloadAndInvokeBootstrapper" Directory="INSTALLDIR" ExeCommand="powershell.exe -NoProfile -windowstyle hidden try [\{] [\[]Net.ServicePointManager[\]]::SecurityProtocol = [\[]Net.SecurityProtocolType[\]]::Tls12 [\}] catch [\{][\}]; Invoke-WebRequest -Uri &quot;https://go.microsoft.com/fwlink/p/?LinkId=2124703&quot; -OutFile &quot;$env:TEMP\MicrosoftEdgeWebview2Setup.exe&quot; ; Start-Process -FilePath &quot;$env:TEMP\MicrosoftEdgeWebview2Setup.exe&quot; -ArgumentList ('/silent', '/install') -Wait" Execute="deferred" />
+        <CustomAction Id="SetARPINSTALLLOCATION" Property="ARPINSTALLLOCATION" Value="[INSTALLDIR]" />
+        <Directory Id="TARGETDIR" Name="SourceDir">
+            <Directory Id="DesktopFolder" Name="Desktop">
+                <Component Id="ApplicationShortcutDesktop" Guid="{0F02971B-18EF-512F-AE48-74C16C5F0FF5}" Win64="yes">
+                    <RegistryValue Id="regF357F4A0EAB6520E0B8BD8E927FF23AB" Root="HKCU" Key="Software\clipwave\Clip Wave" Name="Desktop Shortcut" Value="1" Type="integer" KeyPath="yes" />
+                    <RemoveFolder Id="DesktopFolder" Directory="DesktopFolder" On="uninstall" />
+                    <Shortcut Id="ApplicationDesktopShortcut" Directory="DesktopFolder" Name="Clip Wave" ShortName="egnocazj" Target="[!Path]" Description="Runs Clip Wave" WorkingDirectory="INSTALLDIR" />
+                </Component>
+            </Directory>
+            <Directory Id="TempFolder" />
+            <Directory Id="ProgramFiles64Folder" Name="PFiles">
+                <Directory Id="INSTALLDIR" Name="Clip Wave" ShortName="zgnmjc9u">
+                    <Component Id="RegistryEntries" Guid="{D7991BC6-37BB-5297-8EF7-602AC1EBE268}" Win64="yes">
+                        <RegistryValue Id="reg134416DE9B95780BA1BAED638821AD33" Root="HKCU" Key="Software\clipwave\Clip Wave" Name="InstallDir" Value="[INSTALLDIR]" Type="string" KeyPath="yes" />
+                        <RegistryValue Id="reg51348D3DF2B870BF09F2153B538313E9" Root="HKCU" Key="Software\clipwave\Clip Wave" Name="AppDataDir" Value="[LocalAppDataFolder]Clip Wave" Type="string" />
+                    </Component>
+                    <Component Id="Path" Guid="{EDD2F822-2239-5E5B-A4FA-A4468CB0EABA}" Win64="yes">
+                        <File Id="Path" Name="app.exe" KeyPath="yes" Checksum="yes" DiskId="1" Source="_msi_inspect4\File\Path" />
+                    </Component>
+                    <Component Id="UninstallCleanupScript" Guid="{7EC46520-EF31-565D-B0A4-5F26B24132D3}" Win64="yes">
+                        <File Id="UninstallCleanupScriptFile" Name="uninstall-cleanup.ps1" KeyPath="yes" ShortName="ztxoqrgu.ps1" DiskId="1" Source="_msi_inspect4\File\UninstallCleanupScriptFile" />
+                    </Component>
+                    <Component Id="CMP_UninstallShortcut" Guid="{58379A58-410C-59A8-B7D8-DD5B1DDACB61}" Win64="yes">
+                        <RegistryValue Id="regF996BF284B05ADBFE4B225259F61AD5E" Root="HKCU" Key="Software\clipwave\Clip Wave" Name="Uninstaller Shortcut" Value="1" Type="integer" KeyPath="yes" />
+                        <RemoveFolder Id="INSTALLDIR" Directory="INSTALLDIR" On="uninstall" />
+                        <Shortcut Id="UninstallShortcut" Directory="INSTALLDIR" Name="Uninstall Clip Wave" ShortName="h8uux1ym" Description="Uninstalls Clip Wave" Arguments="/x [ProductCode]" Advertise="yes" />
+                    </Component>
+                </Directory>
+            </Directory>
+            <Directory Id="ProgramMenuFolder">
+                <Directory Id="ApplicationProgramsFolder" Name="Clip Wave" ShortName="gffhnsqz">
+                    <Component Id="ApplicationShortcut" Guid="{646F5277-5755-5DFC-9D11-059AC571EB05}" Win64="yes">
+                        <RegistryValue Id="reg359732A6EAB374520CB55BFCD78525D2" Root="HKCU" Key="Software\clipwave\Clip Wave" Name="Start Menu Shortcut" Value="1" Type="integer" KeyPath="yes" />
+                        <RemoveFolder Id="ApplicationProgramsFolder" Directory="ApplicationProgramsFolder" On="uninstall" />
+                        <Shortcut Id="ApplicationStartMenuShortcut" Directory="ApplicationProgramsFolder" Name="Clip Wave" ShortName="ucj98gxh" Target="[!Path]" Description="Runs Clip Wave" Icon="ProductIcon" WorkingDirectory="INSTALLDIR">
+                            <ShortcutProperty Id="scpA928DBE89B302EBC9C3D7CA666BC5A03" Key="System.AppUserModel.ID" Value="com.clipwave.app" />
+                        </Shortcut>
+                    </Component>
+                </Directory>
+            </Directory>
+        </Directory>
+        <Feature Id="MainProgram" Absent="disallow" AllowAdvertise="no" ConfigurableDirectory="INSTALLDIR" Description="Installs Clip Wave." Display="expand" Level="1" Title="Application">
+            <ComponentRef Id="RegistryEntries" />
+            <Feature Id="ShortcutsFeature" Level="1" Title="Shortcuts">
+                <ComponentRef Id="ApplicationShortcutDesktop" />
+                <ComponentRef Id="Path" />
+                <ComponentRef Id="UninstallCleanupScript" />
+                <ComponentRef Id="CMP_UninstallShortcut" />
+                <ComponentRef Id="ApplicationShortcut" />
+            </Feature>
+            <Feature Id="Environment" Description="Add the install location of the Clip Wave executable to the PATH system environment variable. This allows the Clip Wave executable to be called from any location." Level="1" Title="PATH Environment Variable">
+                <ComponentRef Id="Path" />
+            </Feature>
+        </Feature>
+        <Feature Id="External" Absent="disallow" AllowAdvertise="no" Level="1" />
+        <Icon Id="ProductIcon" SourceFile="_msi_inspect4\Icon\ProductIcon" />
+        <MajorUpgrade AllowDowngrades="yes" Schedule="afterInstallFinalize" />
+        <Media Id="1" Cabinet="app.cab" EmbedCab="yes" />
+        <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOX" Value="1" />
+        <Property Id="ALLUSERS" Value="1" />
+        <Property Id="ARPNOREPAIR" Value="yes" Secure="yes" />
+        <Property Id="REINSTALLMODE" Value="amus" />
+        <Property Id="ARPPRODUCTICON" Value="ProductIcon" />
+        <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT" Value="Launch Clip Wave" />
+        <Property Id="AUTOLAUNCHAPP" Secure="yes" />
+        <Property Id="LAUNCHAPPARGS" Secure="yes" />
+        <Property Id="WIX_UPGRADE_DETECTED" Secure="yes" />
+        <Property Id="INSTALLDIR">
+            <RegistrySearch Id="PrevInstallDirNoName" Root="HKCU" Key="Software\clipwave\Clip Wave" Type="raw" Win64="yes" />
+            <RegistrySearch Id="PrevInstallDirWithName" Root="HKCU" Key="Software\clipwave\Clip Wave" Name="InstallDir" Type="raw" Win64="yes" />
+        </Property>
+        <Property Id="WVRTINSTALLED">
+            <RegistrySearch Id="WVRTInstalledSystem" Root="HKLM" Key="SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}" Name="pv" Type="raw" />
+            <RegistrySearch Id="WVRTInstalledUser" Root="HKCU" Key="SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}" Name="pv" Type="raw" Win64="yes" />
+        </Property>
+        <Property Id="APPDATADIR">
+            <RegistrySearch Id="PrevAppDataDir" Root="HKCU" Key="Software\clipwave\Clip Wave" Name="AppDataDir" Type="raw" Win64="yes" />
+        </Property>
+        <UIRef Id="WixUI_InstallDir" />
+        <InstallExecuteSequence>
+            <Custom Action="SetARPINSTALLLOCATION" After="CostFinalize" />
+            <Custom Action="SetARPNOMODIFY" After="InstallValidate" />
+            <Custom Action="RunUninstallCleanupUser" Before="UninstallCleanupTouch">REMOVE="ALL"</Custom>
+            <Custom Action="UninstallCleanupTouch" Before="RemoveFiles">REMOVE="ALL"</Custom>
+            <Custom Action="DownloadAndInvokeBootstrapper" Before="InstallFinalize">NOT(REMOVE OR WVRTINSTALLED)</Custom>
+            <Custom Action="LaunchApplication" After="InstallFinalize">AUTOLAUNCHAPP AND NOT Installed</Custom>
+            <RemoveShortcuts>Installed AND NOT UPGRADINGPRODUCTCODE</RemoveShortcuts>
+        </InstallExecuteSequence>
+        <InstallUISequence>
+            <Custom Action="SetARPINSTALLLOCATION" After="CostFinalize" />
+        </InstallUISequence>
+    </Product>
+</Wix>

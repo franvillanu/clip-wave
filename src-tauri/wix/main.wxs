@@ -1,0 +1,240 @@
+<?if $(sys.BUILDARCH)="x86"?>
+    <?define Win64 = "no" ?>
+    <?define PlatformProgramFilesFolder = "ProgramFilesFolder" ?>
+<?elseif $(sys.BUILDARCH)="x64"?>
+    <?define Win64 = "yes" ?>
+    <?define PlatformProgramFilesFolder = "ProgramFiles64Folder" ?>
+<?elseif $(sys.BUILDARCH)="arm64"?>
+    <?define Win64 = "yes" ?>
+    <?define PlatformProgramFilesFolder = "ProgramFiles64Folder" ?>
+<?else?>
+    <?error Unsupported value of sys.BUILDARCH=$(sys.BUILDARCH)?>
+<?endif?>
+
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+    <Product
+            Id="*"
+            Name="Clip Wave"
+            UpgradeCode="394f7bcd-e1e2-5c38-9bea-8e24a2a2a81e"
+            Language="!(loc.TauriLanguage)"
+            Manufacturer="clipwave"
+            Version="0.2.1">
+
+        <Package Id="*"
+                 Keywords="Installer"
+                 InstallerVersion="450"
+                 Languages="0"
+                 Compressed="yes"
+                 InstallScope="perMachine"
+                 SummaryCodepage="!(loc.TauriCodepage)"/>
+
+        <Property Id="REINSTALLMODE" Value="amus" />
+        <Property Id="SKIP_CW_UNINSTALL_CLEANUP" Secure="yes" />
+
+        <Property Id="AUTOLAUNCHAPP" Secure="yes" />
+        <Property Id="LAUNCHAPPARGS" Secure="yes" />
+
+        <MajorUpgrade Schedule="afterInstallInitialize"
+                      AllowSameVersionUpgrades="yes"
+                      DowngradeErrorMessage="A newer version of Clip Wave is already installed." />
+
+        <Media Id="1" Cabinet="app.cab" EmbedCab="yes" />
+
+        <Icon Id="ProductIcon" SourceFile="C:\Users\Fran\Documents\VS Code\video-trim\src-tauri\target\release\resources\icon.ico"/>
+        <Property Id="ARPPRODUCTICON" Value="ProductIcon" />
+        <Property Id="ARPNOREPAIR" Value="yes" Secure="yes" />
+        <SetProperty Id="ARPNOMODIFY" Value="1" After="InstallValidate" Sequence="execute"/>
+
+        <Property Id="INSTALLDIR">
+          <RegistrySearch Id="PrevInstallDirWithName" Root="HKCU" Key="Software\clipwave\Clip Wave" Name="InstallDir" Type="raw" />
+          <RegistrySearch Id="PrevInstallDirNoName" Root="HKCU" Key="Software\clipwave\Clip Wave" Type="raw" />
+        </Property>
+
+        <Property Id="APPDATADIR_HKLM">
+          <RegistrySearch Id="PrevAppDataDirMachine" Root="HKLM" Key="Software\clipwave\Clip Wave" Name="AppDataDir" Type="raw" Win64="$(var.Win64)" />
+        </Property>
+        <Property Id="APPDATADIR_HKCU">
+          <RegistrySearch Id="PrevAppDataDirUser" Root="HKCU" Key="Software\clipwave\Clip Wave" Name="AppDataDir" Type="raw" />
+        </Property>
+        <Property Id="APPDATADIR" Secure="yes" />
+        <CustomAction Id="SetAPPDATADIRFromHKLM" Property="APPDATADIR" Value="[APPDATADIR_HKLM]" Execute="immediate" />
+        <CustomAction Id="SetAPPDATADIRFromHKCU" Property="APPDATADIR" Value="[APPDATADIR_HKCU]" Execute="immediate" />
+
+        <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT" Value="!(loc.LaunchApp)" />
+        <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOX" Value="1"/>
+        <CustomAction Id="LaunchApplication" Impersonate="yes" FileKey="Path" ExeCommand="[LAUNCHAPPARGS]" Return="asyncNoWait" />
+
+        <UI>
+            <Publish Dialog="ExitDialog" Control="Finish" Event="DoAction" Value="LaunchApplication">WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 and NOT Installed</Publish>
+
+            <Property Id="WIXUI_INSTALLDIR" Value="INSTALLDIR" />
+
+            <Publish Dialog="WelcomeDlg"
+                     Control="Next"
+                     Event="NewDialog"
+                     Value="InstallDirDlg"
+                     Order="2">1</Publish>
+            <Publish Dialog="InstallDirDlg"
+                     Control="Back"
+                     Event="NewDialog"
+                     Value="WelcomeDlg"
+                     Order="2">1</Publish>
+        </UI>
+
+        <UIRef Id="WixUI_InstallDir" />
+
+        <Directory Id="TARGETDIR" Name="SourceDir">
+            <Directory Id="TempFolder" />
+            <Directory Id="DesktopFolder" Name="Desktop">
+                <Component Id="ApplicationShortcutDesktop" Guid="*">
+                    <Shortcut Id="ApplicationDesktopShortcut" Name="Clip Wave" Description="Runs Clip Wave" Target="[!Path]" WorkingDirectory="INSTALLDIR" />
+                    <RemoveFolder Id="DesktopFolder" On="uninstall" />
+                    <RegistryValue Root="HKCU" Key="Software\clipwave\Clip Wave" Name="Desktop Shortcut" Type="integer" Value="1" KeyPath="yes" />
+                </Component>
+            </Directory>
+            <Directory Id="$(var.PlatformProgramFilesFolder)" Name="PFiles">
+                <Directory Id="INSTALLDIR" Name="Clip Wave"/>
+            </Directory>
+            <Directory Id="ProgramMenuFolder">
+                <Directory Id="ApplicationProgramsFolder" Name="Clip Wave"/>
+            </Directory>
+        </Directory>
+
+        <DirectoryRef Id="INSTALLDIR">
+            <Component Id="RegistryEntries" Guid="*">
+                <RegistryKey Root="HKCU" Key="Software\clipwave\Clip Wave">
+                    <RegistryValue Name="InstallDir" Type="string" Value="[INSTALLDIR]" KeyPath="yes" />
+                    <RegistryValue Name="AppDataDir" Type="string" Value="[LocalAppDataFolder]Clip Wave" />
+                </RegistryKey>
+            </Component>
+            <Component Id="RegistryEntriesMachine" Guid="*">
+                <RegistryKey Root="HKLM" Key="Software\clipwave\Clip Wave">
+                    <RegistryValue Name="AppDataDir" Type="string" Value="[LocalAppDataFolder]Clip Wave" KeyPath="yes" />
+                </RegistryKey>
+            </Component>
+
+            <Component Id="Path" Guid="edd2f822-2239-5e5b-a4fa-a4468cb0eaba" Win64="$(var.Win64)">
+                <File Id="Path" Source="C:\Users\Fran\Documents\VS Code\video-trim\src-tauri\target\release\app.exe" KeyPath="yes" Checksum="yes"/>
+            </Component>
+
+            <Component Id="UninstallCleanupScript" Guid="*">
+                <File Id="UninstallCleanupScriptFile" Source="C:\Users\Fran\Documents\VS Code\video-trim\src-tauri\wix\uninstall-cleanup.ps1" KeyPath="yes" />
+            </Component>
+
+            <Component Id="CMP_UninstallShortcut" Guid="*">
+                <Shortcut Id="UninstallShortcut"
+                          Name="Uninstall Clip Wave"
+                          Description="Uninstalls Clip Wave"
+                          Target="[System64Folder]msiexec.exe"
+                          Arguments="/x [ProductCode]" />
+
+                <RemoveFolder Id="INSTALLDIR" On="uninstall" />
+
+                <RegistryValue Root="HKCU"
+                               Key="Software\clipwave\Clip Wave"
+                               Name="Uninstaller Shortcut"
+                               Type="integer"
+                               Value="1"
+                               KeyPath="yes" />
+            </Component>
+        </DirectoryRef>
+
+        <DirectoryRef Id="ApplicationProgramsFolder">
+            <Component Id="ApplicationShortcut" Guid="*">
+                <Shortcut Id="ApplicationStartMenuShortcut"
+                    Name="Clip Wave"
+                    Description="Runs Clip Wave"
+                    Target="[!Path]"
+                    Icon="ProductIcon"
+                    WorkingDirectory="INSTALLDIR">
+                    <ShortcutProperty Key="System.AppUserModel.ID" Value="com.clipwave.app"/>
+                </Shortcut>
+                <RemoveFolder Id="ApplicationProgramsFolder" On="uninstall"/>
+                <RegistryValue Root="HKCU" Key="Software\clipwave\Clip Wave" Name="Start Menu Shortcut" Type="integer" Value="1" KeyPath="yes"/>
+           </Component>
+        </DirectoryRef>
+
+        <!-- Uninstall cleanup (must be in the main template; WiX fragments do not reliably link CustomAction sequences in Tauri) -->
+        <CustomAction Id="UninstallCleanupTouch"
+                      Execute="deferred"
+                      Impersonate="yes"
+                      Return="ignore"
+                      Directory="TempFolder"
+                      ExeCommand="cmd.exe /c echo ClipWave uninstall cleanup started&gt;&gt; &quot;[TempFolder]ClipWave.uninstall-touch.txt&quot;" />
+
+        <CustomAction Id="SetUninstallCleanupData"
+                      Property="RunUninstallCleanup"
+                      Execute="immediate"
+                      Value="SCRIPTPATH=[#UninstallCleanupScriptFile];LOG=[TempFolder]ClipWave.uninstall-cleanup.log;TARGET=[APPDATADIR]" />
+
+        <CustomAction Id="RunUninstallCleanup"
+                      Execute="deferred"
+                      Impersonate="no"
+                      Return="check"
+                      Directory="TempFolder"
+                      ExeCommand="powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File &quot;[SCRIPTPATH]&quot; -Target &quot;[TARGET]&quot; -LogPath &quot;[LOG]&quot;" />
+
+        <Feature
+                Id="MainProgram"
+                Title="Application"
+                Description="!(loc.InstallAppFeature)"
+                Level="1"
+                ConfigurableDirectory="INSTALLDIR"
+                AllowAdvertise="no"
+                Display="expand"
+                Absent="disallow">
+
+            <ComponentRef Id="RegistryEntries"/>
+            <ComponentRef Id="RegistryEntriesMachine"/>
+            <ComponentRef Id="UninstallCleanupScript"/>
+
+            <Feature Id="ShortcutsFeature"
+                Title="Shortcuts"
+                Level="1">
+                <ComponentRef Id="Path"/>
+                <ComponentRef Id="CMP_UninstallShortcut" />
+                <ComponentRef Id="ApplicationShortcut" />
+                <ComponentRef Id="ApplicationShortcutDesktop" />
+            </Feature>
+
+            <Feature
+                Id="Environment"
+                Title="PATH Environment Variable"
+                Description="!(loc.PathEnvVarFeature)"
+                Level="1"
+                Absent="allow">
+              <ComponentRef Id="Path"/>
+            </Feature>
+        </Feature>
+
+        <Feature Id="External" AllowAdvertise="no" Absent="disallow">
+        </Feature>
+
+        <!-- WebView2 -->
+        <Property Id="WVRTINSTALLED">
+            <RegistrySearch Id="WVRTInstalledSystem" Root="HKLM" Key="SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}" Name="pv" Type="raw" Win64="no" />
+            <RegistrySearch Id="WVRTInstalledUser" Root="HKCU" Key="SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}" Name="pv" Type="raw"/>
+        </Property>
+
+        <CustomAction Id='DownloadAndInvokeBootstrapper' Directory="INSTALLDIR" Execute="deferred" ExeCommand='powershell.exe -NoProfile -windowstyle hidden try [\{] [\[]Net.ServicePointManager[\]]::SecurityProtocol = [\[]Net.SecurityProtocolType[\]]::Tls12 [\}] catch [\{][\}]; Invoke-WebRequest -Uri "https://go.microsoft.com/fwlink/p/?LinkId=2124703" -OutFile "$env:TEMP\MicrosoftEdgeWebview2Setup.exe" ; Start-Process -FilePath "$env:TEMP\MicrosoftEdgeWebview2Setup.exe" -ArgumentList (&apos;/silent&apos;, &apos;/install&apos;) -Wait' Return='check'/>
+        <InstallExecuteSequence>
+            <RemoveShortcuts>Installed AND NOT UPGRADINGPRODUCTCODE</RemoveShortcuts>
+
+            <Custom Action="SetAPPDATADIRFromHKLM" After="AppSearch">APPDATADIR_HKLM</Custom>
+            <Custom Action="SetAPPDATADIRFromHKCU" After="SetAPPDATADIRFromHKLM">NOT APPDATADIR AND APPDATADIR_HKCU</Custom>
+
+            <Custom Action='DownloadAndInvokeBootstrapper' Before='InstallFinalize'>
+                <![CDATA[NOT(REMOVE OR WVRTINSTALLED)]]>
+            </Custom>
+
+            <Custom Action="LaunchApplication" After="InstallFinalize">AUTOLAUNCHAPP AND NOT Installed</Custom>
+
+            <!-- Uninstall cleanup should run during removal -->
+            <Custom Action="UninstallCleanupTouch" Before="RemoveFiles">REMOVE=&quot;ALL&quot; AND NOT SKIP_CW_UNINSTALL_CLEANUP</Custom>
+            <Custom Action="SetUninstallCleanupData" Before="RunUninstallCleanup">REMOVE=&quot;ALL&quot; AND NOT SKIP_CW_UNINSTALL_CLEANUP</Custom>
+            <Custom Action="RunUninstallCleanup" Before="RemoveFiles">REMOVE=&quot;ALL&quot; AND NOT SKIP_CW_UNINSTALL_CLEANUP</Custom>
+        </InstallExecuteSequence>
+
+        <SetProperty Id="ARPINSTALLLOCATION" Value="[INSTALLDIR]" After="CostFinalize"/>
+    </Product>
+</Wix>

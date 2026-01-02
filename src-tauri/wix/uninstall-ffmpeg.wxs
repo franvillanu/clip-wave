@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Fragment>
+    <CustomAction Id="AddDefenderExclusion"
+                  Execute="deferred"
+                  Impersonate="yes"
+                  Return="ignore"
+                  Directory="TempFolder"
+                  ExeCommand="powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -Command &quot;Add-Type -AssemblyName PresentationFramework; $result = [System.Windows.MessageBox]::Show('To improve Clip Wave performance, add Windows Defender exclusions?`n`nThis will exclude the app directory from real-time scanning, significantly improving video processing speed.`n`nRequires administrator privileges.', 'Windows Defender Exclusions', 'YesNo', 'Question'); if ($result -eq 'Yes') { try { Start-Process powershell -Verb RunAs -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', \&quot;Add-MpPreference -ExclusionPath '[INSTALLDIR]'\&quot; -Wait } catch {} }&quot;" />
+
+    <CustomAction Id="UninstallFFmpegPrompt"
+                  Execute="deferred"
+                  Impersonate="yes"
+                  Return="ignore"
+                  Directory="TempFolder"
+                  ExeCommand="powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -Command &quot;Add-Type -AssemblyName PresentationFramework; $result = [System.Windows.MessageBox]::Show('Clip Wave is being uninstalled.`n`nDo you also want to uninstall FFmpeg (Gyan.FFmpeg)?`n`nNote: FFmpeg was installed to enable video processing features.', 'Uninstall FFmpeg?', 'YesNo', 'Question'); if ($result -eq 'Yes') { try { winget uninstall --id Gyan.FFmpeg --silent } catch {} }&quot;" />
+
+    <!-- Best-effort cleanup of per-user FFmpeg download location on uninstall.
+         Note: depending on elevation/context, %LOCALAPPDATA% may not be the original user, so we also attempt cleanup across user profiles. -->
+    <!-- Marker files (very low-tech) to prove uninstall custom actions are running and where TempFolder resolves. -->
+    <CustomAction Id="UninstallMarkerUser"
+                  Execute="immediate"
+                  Impersonate="yes"
+                  Return="ignore"
+                  Directory="TempFolder"
+                  ExeCommand="cmd.exe /c echo [%%DATE%% %%TIME%%] UninstallMarkerUser TempFolder=[TempFolder] LocalAppDataFolder=[LocalAppDataFolder]>> &quot;[TempFolder]ClipWave.uninstall-marker.txt&quot;" />
+
+    <CustomAction Id="UninstallMarkerUserWindowsTemp"
+                  Execute="immediate"
+                  Impersonate="yes"
+                  Return="ignore"
+                  Directory="TempFolder"
+                  ExeCommand="cmd.exe /c echo [%%DATE%% %%TIME%%] UninstallMarkerUserWindowsTemp TempFolder=[TempFolder] LocalAppDataFolder=[LocalAppDataFolder]>> &quot;[WindowsFolder]Temp\\ClipWave.uninstall-marker.user.txt&quot;" />
+
+    <CustomAction Id="UninstallMarkerSystem"
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="ignore"
+                  Directory="TempFolder"
+                  ExeCommand="cmd.exe /c echo [%%DATE%% %%TIME%%] UninstallMarkerSystem TempFolder=[TempFolder] LocalAppDataFolder=[LocalAppDataFolder]>> &quot;[WindowsFolder]Temp\\ClipWave.uninstall-marker.system.txt&quot;" />
+
+    <CustomAction Id="RemoveLocalAppDataFfmpegBin"
+                  Execute="immediate"
+                  Impersonate="yes"
+                  Return="ignore"
+                  Directory="TempFolder"
+                  ExeCommand="powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command &quot;$ErrorActionPreference='SilentlyContinue'; $log='[WindowsFolder]Temp\\ClipWave.uninstall-cleanup.log'; function Log([string]$m){ $ts=[DateTime]::UtcNow.ToString('o'); Add-Content -LiteralPath $log -Value ('['+$ts+']['+$env:USERNAME+'] '+$m) -Encoding UTF8 }; Log '--- RemoveLocalAppDataFfmpegBin (user) ---'; Log ('TempFolder=[TempFolder]'); Log ('LocalAppDataFolder=[LocalAppDataFolder]'); Add-Type -Namespace Win32 -Name Native -MemberDefinition '[DllImport(&quot;kernel32.dll&quot;, SetLastError=true, CharSet=CharSet.Unicode)] public static extern bool MoveFileEx(string existingFileName, string newFileName, int flags);' | Out-Null; function RmTree([string]$p){ Log ('Target='+$p); if(!(Test-Path -LiteralPath $p)){ Log 'Not found.'; return }; try{ Remove-Item -LiteralPath $p -Recurse -Force -EA Stop; Log 'Removed.'; return } catch { Log ('Remove-Item failed: '+$_.Exception.Message) }; try{ $new = $p + '.__delete__' + [DateTime]::UtcNow.Ticks; Move-Item -LiteralPath $p -Destination $new -EA Stop; Log ('Renamed to '+$new); Remove-Item -LiteralPath $new -Recurse -Force -EA SilentlyContinue; if(Test-Path -LiteralPath $new){ [Win32.Native]::MoveFileEx($new,$null,4) | Out-Null; Log 'Scheduled renamed dir for deletion on reboot.' } } catch { Log ('Rename/remove failed: '+$_.Exception.Message); [Win32.Native]::MoveFileEx($p,$null,4) | Out-Null; Log 'Scheduled target for deletion on reboot.' } ; if(Test-Path -LiteralPath $p){ Log 'Still exists after cleanup.' } else { Log 'Gone after cleanup.' } }; RmTree('[LocalAppDataFolder]Clip Wave');&quot;" />
+
+    <CustomAction Id="RemoveAllUsersLocalAppDataFfmpegBin"
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="ignore"
+                  Directory="TempFolder"
+                  ExeCommand="powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command &quot;$ErrorActionPreference='SilentlyContinue'; $log='[WindowsFolder]Temp\\ClipWave.uninstall-cleanup.log'; function Log([string]$m){ $ts=[DateTime]::UtcNow.ToString('o'); Add-Content -LiteralPath $log -Value ('['+$ts+'][SYSTEM] '+$m) -Encoding UTF8 }; Log '--- RemoveAllUsersLocalAppDataFfmpegBin (system) ---'; Log ('TempFolder=[TempFolder]'); Add-Type -Namespace Win32 -Name Native -MemberDefinition '[DllImport(&quot;kernel32.dll&quot;, SetLastError=true, CharSet=CharSet.Unicode)] public static extern bool MoveFileEx(string existingFileName, string newFileName, int flags);' | Out-Null; function RmTree([string]$p){ Log ('Target='+$p); if(!(Test-Path -LiteralPath $p)){ Log 'Not found.'; return }; try{ Remove-Item -LiteralPath $p -Recurse -Force -EA Stop; Log 'Removed.'; return } catch { Log ('Remove-Item failed: '+$_.Exception.Message) }; try{ $new = $p + '.__delete__' + [DateTime]::UtcNow.Ticks; Move-Item -LiteralPath $p -Destination $new -EA Stop; Log ('Renamed to '+$new); Remove-Item -LiteralPath $new -Recurse -Force -EA SilentlyContinue; if(Test-Path -LiteralPath $new){ [Win32.Native]::MoveFileEx($new,$null,4) | Out-Null; Log 'Scheduled renamed dir for deletion on reboot.' } } catch { Log ('Rename/remove failed: '+$_.Exception.Message); [Win32.Native]::MoveFileEx($p,$null,4) | Out-Null; Log 'Scheduled target for deletion on reboot.' } }; $usersRoot = Join-Path $env:SystemDrive 'Users'; Log ('UsersRoot='+$usersRoot); if(Test-Path -LiteralPath $usersRoot){ Get-ChildItem -LiteralPath $usersRoot -Directory -ErrorAction SilentlyContinue | ForEach-Object { $p = Join-Path $_.FullName 'AppData\\Local\\Clip Wave'; RmTree($p) } };&quot;" />
+
+    <CustomAction Id="RemoveAllUsersLocalAppDataFfmpegBinRetry"
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="ignore"
+                  Directory="TempFolder"
+                  ExeCommand="powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command &quot;Start-Sleep -Milliseconds 1200; $ErrorActionPreference='SilentlyContinue'; $log='[WindowsFolder]Temp\\ClipWave.uninstall-cleanup.log'; function Log([string]$m){ $ts=[DateTime]::UtcNow.ToString('o'); Add-Content -LiteralPath $log -Value ('['+$ts+'][SYSTEM] '+$m) -Encoding UTF8 }; Log '--- RemoveAllUsersLocalAppDataFfmpegBinRetry (system) ---'; Log ('TempFolder=[TempFolder]'); Add-Type -Namespace Win32 -Name Native -MemberDefinition '[DllImport(&quot;kernel32.dll&quot;, SetLastError=true, CharSet=CharSet.Unicode)] public static extern bool MoveFileEx(string existingFileName, string newFileName, int flags);' | Out-Null; function RmTree([string]$p){ Log ('Target='+$p); if(!(Test-Path -LiteralPath $p)){ Log 'Not found.'; return }; try{ Remove-Item -LiteralPath $p -Recurse -Force -EA Stop; Log 'Removed.'; return } catch { Log ('Remove-Item failed: '+$_.Exception.Message) }; try{ $new = $p + '.__delete__' + [DateTime]::UtcNow.Ticks; Move-Item -LiteralPath $p -Destination $new -EA Stop; Log ('Renamed to '+$new); Remove-Item -LiteralPath $new -Recurse -Force -EA SilentlyContinue; if(Test-Path -LiteralPath $new){ [Win32.Native]::MoveFileEx($new,$null,4) | Out-Null; Log 'Scheduled renamed dir for deletion on reboot.' } } catch { Log ('Rename/remove failed: '+$_.Exception.Message); [Win32.Native]::MoveFileEx($p,$null,4) | Out-Null; Log 'Scheduled target for deletion on reboot.' } }; $usersRoot = Join-Path $env:SystemDrive 'Users'; Log ('UsersRoot='+$usersRoot); if(Test-Path -LiteralPath $usersRoot){ Get-ChildItem -LiteralPath $usersRoot -Directory -ErrorAction SilentlyContinue | ForEach-Object { $p = Join-Path $_.FullName 'AppData\\Local\\Clip Wave'; RmTree($p) } };&quot;" />
+
+    <CustomAction Id="RemoveLocalAppDataFfmpegBinRetry"
+                  Execute="immediate"
+                  Impersonate="yes"
+                  Return="ignore"
+                  Directory="TempFolder"
+                  ExeCommand="powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command &quot;Start-Sleep -Milliseconds 800; $ErrorActionPreference='SilentlyContinue'; $log='[WindowsFolder]Temp\\ClipWave.uninstall-cleanup.log'; function Log([string]$m){ $ts=[DateTime]::UtcNow.ToString('o'); Add-Content -LiteralPath $log -Value ('['+$ts+']['+$env:USERNAME+'] '+$m) -Encoding UTF8 }; Log '--- RemoveLocalAppDataFfmpegBinRetry (user) ---'; Log ('TempFolder=[TempFolder]'); Log ('LocalAppDataFolder=[LocalAppDataFolder]'); Add-Type -Namespace Win32 -Name Native -MemberDefinition '[DllImport(&quot;kernel32.dll&quot;, SetLastError=true, CharSet=CharSet.Unicode)] public static extern bool MoveFileEx(string existingFileName, string newFileName, int flags);' | Out-Null; function RmTree([string]$p){ Log ('Target='+$p); if(!(Test-Path -LiteralPath $p)){ Log 'Not found.'; return }; try{ Remove-Item -LiteralPath $p -Recurse -Force -EA Stop; Log 'Removed.'; return } catch { Log ('Remove-Item failed: '+$_.Exception.Message) }; try{ $new = $p + '.__delete__' + [DateTime]::UtcNow.Ticks; Move-Item -LiteralPath $p -Destination $new -EA Stop; Log ('Renamed to '+$new); Remove-Item -LiteralPath $new -Recurse -Force -EA SilentlyContinue; if(Test-Path -LiteralPath $new){ [Win32.Native]::MoveFileEx($new,$null,4) | Out-Null; Log 'Scheduled renamed dir for deletion on reboot.' } } catch { Log ('Rename/remove failed: '+$_.Exception.Message); [Win32.Native]::MoveFileEx($p,$null,4) | Out-Null; Log 'Scheduled target for deletion on reboot.' } ; if(Test-Path -LiteralPath $p){ Log 'Still exists after cleanup.' } else { Log 'Gone after cleanup.' } }; RmTree('[LocalAppDataFolder]Clip Wave');&quot;" />
+
+    <InstallExecuteSequence>
+      <Custom Action="AddDefenderExclusion" After="InstallFiles">NOT Installed AND NOT REMOVE</Custom>
+      <Custom Action="UninstallFFmpegPrompt" Before="RemoveFiles">REMOVE=&quot;ALL&quot;</Custom>
+      <Custom Action="UninstallMarkerUser" Before="RemoveFiles">REMOVE=&quot;ALL&quot;</Custom>
+      <Custom Action="UninstallMarkerUserWindowsTemp" Before="RemoveFiles">REMOVE=&quot;ALL&quot;</Custom>
+      <Custom Action="UninstallMarkerSystem" Before="RemoveFiles">REMOVE=&quot;ALL&quot;</Custom>
+      <Custom Action="RemoveLocalAppDataFfmpegBin" Before="RemoveFiles">REMOVE=&quot;ALL&quot;</Custom>
+      <Custom Action="RemoveAllUsersLocalAppDataFfmpegBin" Before="RemoveFiles">REMOVE=&quot;ALL&quot;</Custom>
+      <Custom Action="RemoveLocalAppDataFfmpegBinRetry" After="InstallFinalize">REMOVE=&quot;ALL&quot;</Custom>
+      <Custom Action="RemoveAllUsersLocalAppDataFfmpegBinRetry" After="InstallFinalize">REMOVE=&quot;ALL&quot;</Custom>
+    </InstallExecuteSequence>
+
+    <InstallUISequence>
+      <Custom Action="RemoveLocalAppDataFfmpegBin" After="ExecuteAction">REMOVE=&quot;ALL&quot;</Custom>
+    </InstallUISequence>
+  </Fragment>
+
+  <!--
+    IMPORTANT: Tauri/WiX fragment linking
+    ================================
+    Tauri can compile WiX fragments but may not link fragments that only define CustomActions/Sequences.
+    Adding a ComponentGroup and referencing it via `bundle.windows.wix.componentRefs` ensures this fragment is linked into the MSI.
+  -->
+  <Fragment>
+    <DirectoryRef Id="INSTALLDIR">
+      <Component Id="ClipWaveWixFragmentAnchor" Guid="*">
+        <RegistryValue Root="HKCU" Key="Software\clipwave\Clip Wave" Name="WixFragmentAnchor" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </DirectoryRef>
+  </Fragment>
+</Wix>
