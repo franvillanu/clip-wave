@@ -787,7 +787,7 @@ body,
   overflow-wrap: anywhere;
   width: calc(100% - (var(--space-2) * 2));
   flex: 0 0 auto;
-  height: 220px;
+  height: 323px;
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -1514,7 +1514,7 @@ body,
 
   .vt-status {
     padding: var(--space-3);
-    height: 380px;
+    height: 323px;
   }
 }
 
