@@ -1686,10 +1686,15 @@ function App() {
               <span
                 onClick={async (e) => {
                   e.stopPropagation()
+                  logUser('Opening FFmpeg website...', 'info')
+                  logDebug('FFmpeg link clicked', 'info')
                   try {
                     await openUrl('https://ffmpeg.org')
+                    logDebug('openUrl called successfully', 'success')
                   } catch (err) {
                     console.error('Failed to open FFmpeg URL:', err)
+                    logUser(`Failed to open FFmpeg website: ${String(err?.message || err)}`, 'error')
+                    logDebug(`openUrl error: ${String(err?.message || err)}`, 'error')
                   }
                 }}
                 role="button"
@@ -1697,7 +1702,10 @@ function App() {
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' || e.key === ' ') {
                     e.preventDefault()
-                    openUrl('https://ffmpeg.org')
+                    logUser('Opening FFmpeg website (keyboard)...', 'info')
+                    openUrl('https://ffmpeg.org').catch(err => {
+                      logUser(`Failed to open FFmpeg website: ${String(err?.message || err)}`, 'error')
+                    })
                   }
                 }}
                 style={{
@@ -2085,7 +2093,7 @@ function App() {
                   <div className="vt-dualSelectRow">
                     <div className="vt-dualSelectCol">
                       <label className="vt-miniLabel" htmlFor="vt-audioSelect">
-                        🔊 Audio (<span style={{ color: audioStreams.length > 0 ? '#86efac' : 'inherit' }}>{audioStreams.length}</span>)
+                        🔊 Audio (<span style={{ color: audioStreams.length > 0 ? 'var(--success)' : 'inherit' }}>{audioStreams.length}</span>)
                       </label>
                       <div className="vt-selectWrap">
                         <select
@@ -2109,7 +2117,7 @@ function App() {
                     </div>
                     <div className="vt-dualSelectCol">
                       <label className="vt-miniLabel" htmlFor="vt-subtitleSelect">
-                        📄 Subtitles (<span style={{ color: subtitleStreams.length > 0 ? '#86efac' : 'inherit' }}>{subtitleStreams.length}</span>)
+                        📄 Subtitles (<span style={{ color: subtitleStreams.length > 0 ? 'var(--success)' : 'inherit' }}>{subtitleStreams.length}</span>)
                       </label>
                       <div className="vt-selectWrap">
                         <select
