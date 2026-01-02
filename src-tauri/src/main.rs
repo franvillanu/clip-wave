@@ -2372,9 +2372,9 @@ fn trim_media(
     .append(true)
     .open("C:\\Users\\Fran\\Documents\\ffmpeg_debug.txt") {
     use std::io::Write;
-    let _ = writeln!(f, "\n[{}] Mode: {}", chrono::Local::now().format("%Y-%m-%d %H:%M:%S"), mode);
+    let _ = writeln!(f, "\n=== Mode: {} ===", mode);
     let _ = writeln!(f, "Command: {:?}", cmd);
-    let _ = writeln!(f, "In: {} -> Out: {}", in_time_arg, out_time_arg);
+    let _ = writeln!(f, "In: {} -> Out: {} (duration: {})", in_time_arg, out_time_arg, duration_arg);
   }
 
   let output = cmd
