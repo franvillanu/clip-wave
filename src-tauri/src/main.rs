@@ -184,6 +184,99 @@ fn parse_hh_mm_ss(input: &str) -> Result<u64, String> {
   Ok(seconds_f64.floor() as u64)
 }
 
+fn parse_srt_timestamp(input: &str) -> Option<f64> {
+  let trimmed = input.trim();
+  let mut parts = trimmed.split(':');
+  let h = parts.next()?.trim().parse::<u64>().ok()?;
+  let m = parts.next()?.trim().parse::<u64>().ok()?;
+  let s_part = parts.next()?.trim();
+  if parts.next().is_some() {
+    return None;
+  }
+  let (s_raw, ms_raw) = if let Some((left, right)) = s_part.split_once(',') {
+    (left, right)
+  } else if let Some((left, right)) = s_part.split_once('.') {
+    (left, right)
+  } else {
+    (s_part, "0")
+  };
+  let s = s_raw.trim().parse::<u64>().ok()?;
+  let ms = ms_raw.trim().parse::<u64>().ok()?;
+  if m >= 60 || s >= 60 {
+    return None;
+  }
+  let total_ms = (h * 3600 + m * 60 + s) * 1000 + ms.min(999);
+  Some(total_ms as f64 / 1000.0)
+}
+
+fn format_srt_timestamp(seconds: f64) -> String {
+  let clamped = if seconds.is_finite() && seconds > 0.0 { seconds } else { 0.0 };
+  let total_ms = (clamped * 1000.0).round() as u64;
+  let ms = total_ms % 1000;
+  let total_s = total_ms / 1000;
+  let s = total_s % 60;
+  let m = (total_s / 60) % 60;
+  let h = total_s / 3600;
+  format!("{:02}:{:02}:{:02},{:03}", h, m, s, ms)
+}
+
+fn trim_srt_text(input: &str, start_seconds: f64, duration_seconds: f64) -> String {
+  let mut blocks: Vec<Vec<String>> = Vec::new();
+  let mut current: Vec<String> = Vec::new();
+  for line in input.lines() {
+    let clean = line.trim_end_matches('\r');
+    if clean.trim().is_empty() {
+      if !current.is_empty() {
+        blocks.push(current);
+        current = Vec::new();
+      }
+    } else {
+      current.push(clean.to_string());
+    }
+  }
+  if !current.is_empty() {
+    blocks.push(current);
+  }
+
+  let mut out = String::new();
+  let mut index = 1;
+  for block in blocks {
+    let time_idx = block.iter().position(|l| l.contains("-->"));
+    let Some(ti) = time_idx else { continue };
+    let line = &block[ti];
+    let mut parts = line.split("-->");
+    let start_raw = parts.next().unwrap_or("").trim();
+    let end_raw = parts.next().unwrap_or("").trim();
+    let Some(start_ts) = parse_srt_timestamp(start_raw) else { continue };
+    let Some(end_ts) = parse_srt_timestamp(end_raw) else { continue };
+    let mut s = start_ts - start_seconds;
+    let mut e = end_ts - start_seconds;
+    if e <= 0.0 || s >= duration_seconds {
+      continue;
+    }
+    if s < 0.0 {
+      s = 0.0;
+    }
+    if e > duration_seconds {
+      e = duration_seconds;
+    }
+    if e <= s {
+      continue;
+    }
+    let new_time = format!("{} --> {}", format_srt_timestamp(s), format_srt_timestamp(e));
+    out.push_str(&format!("{index}\n"));
+    out.push_str(&new_time);
+    out.push('\n');
+    for text_line in block.iter().skip(ti + 1) {
+      out.push_str(text_line);
+      out.push('\n');
+    }
+    out.push('\n');
+    index += 1;
+  }
+  out
+}
+
 // Parse time in format hh:mm:ss or hh:mm:ss.milliseconds
 fn parse_hh_mm_ss_with_millis(input: &str) -> Result<f64, String> {
   let parts: Vec<&str> = input.split(':').collect();
@@ -2310,6 +2403,19 @@ fn trim_media(
     return Err("Output file already exists; choose different times or delete the existing output".to_string());
   }
 
+  let should_trim_subs = subtitle_stream_index >= 0 && (mode == "exact" || mode == "lossless");
+  let mut temp_video_path: Option<PathBuf> = None;
+  let mut temp_srt_path: Option<PathBuf> = None;
+  if should_trim_subs {
+    let suffix = std::time::SystemTime::now()
+      .duration_since(std::time::UNIX_EPOCH)
+      .map(|d| d.as_millis())
+      .unwrap_or(0);
+    let tmp_dir = std::env::temp_dir();
+    temp_video_path = Some(tmp_dir.join(format!("clipwave_video_{suffix}.mkv")));
+    temp_srt_path = Some(tmp_dir.join(format!("clipwave_subs_{suffix}.srt")));
+  }
+
   let (ffmpeg_path, ffprobe_path, _ffmpeg_bin_dir_used) =
     resolve_ffmpeg_binaries_with_fallback(&ffmpeg_bin_dir);
 
@@ -2322,7 +2428,7 @@ fn trim_media(
     ));
   }
 
-  let mut cmd = Command::new(ffmpeg_path);
+  let mut cmd = Command::new(&ffmpeg_path);
   apply_no_window(&mut cmd);
 
   // For millisecond precision, pass time as decimal seconds (e.g., "3.170")
@@ -2330,6 +2436,21 @@ fn trim_media(
   let out_time_arg = format!("{:.6}", out_seconds_f64);
   let duration = out_seconds_f64 - in_seconds_f64;
   let duration_arg = format!("{:.6}", duration);
+  let mut sub_trim_start_seconds = in_seconds_f64;
+  let mut sub_trim_duration = duration;
+  if should_trim_subs && mode == "lossless" {
+    if let Ok(pre) = lossless_preflight_sync(input_path.clone(), in_time.clone(), ffmpeg_bin_dir.clone()) {
+      if let Some(nearest) = pre.nearest_keyframe_seconds {
+        if nearest <= in_seconds_f64 {
+          sub_trim_start_seconds = nearest;
+          sub_trim_duration = out_seconds_f64 - sub_trim_start_seconds;
+        }
+      }
+    }
+    if sub_trim_duration <= 0.0 {
+      return Err("Subtitle trim duration is invalid for lossless mode.".to_string());
+    }
+  }
 
   cmd.args(["-v", "error"]);
 
@@ -2374,8 +2495,8 @@ fn trim_media(
     if rotation_degrees != 0 {
       cmd.args(["-metadata:s:v:0", &format!("rotate={rotation_degrees}")]);
     }
-    // Include subtitles in lossless mode
-    if subtitle_stream_index >= 0 {
+    // Include subtitles in lossless mode only when not trimming them.
+    if subtitle_stream_index >= 0 && !should_trim_subs {
       cmd.args(["-map", &format!("0:{subtitle_stream_index}")]);
     }
   } else {
@@ -2399,16 +2520,11 @@ fn trim_media(
       cmd.args(["-c:a", "copy"]);
     }
 
-    // Include subtitles in exact mode, but re-encode them (don't use -c:s copy)
-    // Re-encoding forces FFmpeg to trim subtitle cues to the requested duration
-    // Using -c:s copy would preserve subtitle cue end times, extending container duration
-    if subtitle_stream_index >= 0 {
-      cmd.args(["-map", &format!("0:{subtitle_stream_index}")]);
-      // Don't specify -c:s - let FFmpeg re-encode subtitles to trim cues properly
-    }
+    // Subtitles are handled separately for exact mode.
   }
 
-  cmd.arg(&output_path)
+  let output_for_video = if let Some(tmp) = &temp_video_path { tmp } else { &output_path };
+  cmd.arg(output_for_video)
     .stdin(Stdio::null())
     .stdout(Stdio::piped())
     .stderr(Stdio::piped());
@@ -2445,6 +2561,87 @@ fn trim_media(
     } else {
       format!("ffmpeg failed: {stderr}")
     });
+  }
+
+  if should_trim_subs {
+    let temp_srt = temp_srt_path.clone().ok_or_else(|| "Subtitle temp path missing".to_string())?;
+    let temp_video = temp_video_path.clone().ok_or_else(|| "Video temp path missing".to_string())?;
+
+    let mut sub_cmd = Command::new(&ffmpeg_path);
+    apply_no_window(&mut sub_cmd);
+    sub_cmd
+      .args(["-v", "error", "-i"])
+      .arg(&input_path)
+      .args(["-map", &format!("0:{subtitle_stream_index}")])
+      .args(["-c:s", "srt"])
+      .arg(&temp_srt)
+      .stdin(Stdio::null())
+      .stdout(Stdio::piped())
+      .stderr(Stdio::piped());
+
+    let sub_out = sub_cmd.output().map_err(|e| {
+      if e.kind() == ErrorKind::NotFound {
+        "Failed to run ffmpeg for subtitles: program not found".to_string()
+      } else {
+        format!("Failed to run ffmpeg for subtitles: {e}")
+      }
+    })?;
+    if !sub_out.status.success() {
+      let stderr = String::from_utf8_lossy(&sub_out.stderr).trim().to_string();
+      return Err(if stderr.is_empty() {
+        "ffmpeg subtitle extract failed".to_string()
+      } else {
+        format!("ffmpeg subtitle extract failed: {stderr}")
+      });
+    }
+
+    let srt_raw = fs::read_to_string(&temp_srt)
+      .map_err(|e| format!("Failed to read extracted subtitles: {e}"))?;
+    let trimmed = trim_srt_text(&srt_raw, sub_trim_start_seconds, sub_trim_duration);
+    fs::write(&temp_srt, trimmed.as_bytes())
+      .map_err(|e| format!("Failed to write trimmed subtitles: {e}"))?;
+
+    let mut mux_cmd = Command::new(&ffmpeg_path);
+    apply_no_window(&mut mux_cmd);
+    mux_cmd
+      .args(["-v", "error", "-i"])
+      .arg(&temp_video)
+      .args(["-i"])
+      .arg(&temp_srt)
+      .args(["-map", "0", "-map", "1:0"])
+      .args(["-c", "copy", "-c:s", "srt"])
+      .arg(&output_path)
+      .stdin(Stdio::null())
+      .stdout(Stdio::piped())
+      .stderr(Stdio::piped());
+
+    let mux_out = mux_cmd.output().map_err(|e| {
+      if e.kind() == ErrorKind::NotFound {
+        "Failed to run ffmpeg mux: program not found".to_string()
+      } else {
+        format!("Failed to run ffmpeg mux: {e}")
+      }
+    })?;
+    if !mux_out.status.success() {
+      let stderr = String::from_utf8_lossy(&mux_out.stderr).trim().to_string();
+      return Err(if stderr.is_empty() {
+        "ffmpeg mux failed".to_string()
+      } else {
+        format!("ffmpeg mux failed: {stderr}")
+      });
+    }
+
+    eprintln!("[INFO] Subtitles trimmed to match clip window.");
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+      .create(true)
+      .append(true)
+      .open("C:\\Users\\Fran\\Documents\\ffmpeg_debug.txt") {
+      use std::io::Write;
+      let _ = writeln!(f, "Info: Subtitles trimmed to match clip window.");
+    }
+
+    let _ = fs::remove_file(&temp_video);
+    let _ = fs::remove_file(&temp_srt);
   }
 
   Ok(TrimResult {
