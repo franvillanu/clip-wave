@@ -465,8 +465,16 @@ function App() {
     nextKeyframeSeconds: null,
     endShiftSeconds: null,
     outKeyframeTime: null,
+    outPrevKeyframeTime: null,
+    outPrevKeyframeSeconds: null,
+    outNextKeyframeTime: null,
+    outNextKeyframeDelta: null,
+    outNextKeyframeSeconds: null,
+    subtitleExtraSeconds: null,
   })
   const [losslessTipExpanded, setLosslessTipExpanded] = useState(false)
+  const [losslessSubtitleHandling, setLosslessSubtitleHandling] = useState('copy')
+  const [losslessSubtitleModalOpen, setLosslessSubtitleModalOpen] = useState(false)
 
   const statusSeqRef = useRef(0)
   const openSeqRef = useRef(0)
@@ -480,6 +488,7 @@ function App() {
   const holdIntervalRef = useRef(null)
   const holdTimeoutRef = useRef(null)
   const ffprobeWarmRef = useRef(false)
+  const readyLoggedRef = useRef(false)
 
   const isProbing = busyAction === 'probing'
   const isCutting = busyAction === 'cutting'
@@ -728,6 +737,16 @@ function App() {
     return secondsToTime(Math.round(Number(totalSeconds) || 0))
   }
 
+  function secondsToTimeWithMillis(totalSeconds) {
+    const total = Number(totalSeconds) || 0
+    const s = Math.max(0, Math.floor(total))
+    const millis = Math.round((total - s) * 1000)
+    const hh = Math.floor(s / 3600)
+    const mm = Math.floor((s % 3600) / 60)
+    const ss = s % 60
+    return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}.${String(millis).padStart(3, '0')}`
+  }
+
   function formatDuration(totalSeconds) {
     const abs = Math.abs(Number(totalSeconds) || 0)
     const roundedSeconds = Math.round(abs)
@@ -800,6 +819,8 @@ function App() {
 
   useEffect(() => {
     // Ensure the log panel is never empty (and production mode shows something immediately).
+    if (readyLoggedRef.current) return
+    readyLoggedRef.current = true
     pushStatus('Ready.', 'info', 'user')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -918,10 +939,8 @@ function App() {
         logUser('No subtitles found.', 'info')
       } else {
         setSubsStatus('loaded')
-        if (!touchedSubs) {
-          const pick = pickPreferredSubtitleIndex(subs)
-          if (pick >= 0) setSelectedSubtitleIndex(pick)
-        }
+        // Default to no subtitles to avoid duration issues
+        // User can manually select subtitles if needed
         logUser(`Loaded ${subs.length} subtitle track(s).`, 'success')
       }
     } catch (e) {
@@ -1177,13 +1196,19 @@ function App() {
     }
 
     if (mode === 'lossless') {
+      if (selectedSubtitleIndex >= 0) {
+        setLosslessSubtitleModalOpen(true)
+        return
+      }
       const currentKey = losslessPreflightKey(inputPath, inTime, outTime, ffmpegBinDir)
       if (skipLosslessPreflightKeyRef.current === currentKey) {
         skipLosslessPreflightKeyRef.current = ''
       } else {
         const requestId = ++losslessPreflightReqRef.current
+        const subtitleHandling = selectedSubtitleIndex >= 0 ? 'copy' : 'exclude'
+        setLosslessSubtitleHandling(subtitleHandling)
 
-        // Always show the modal immediately to avoid flicker
+        // Show checking modal
         setLosslessModal({
           open: true,
           checking: true,
@@ -1195,11 +1220,26 @@ function App() {
           nextKeyframeTime: null,
           nextKeyframeDelta: null,
           nextKeyframeSeconds: null,
+          endShiftSeconds: null,
+          outKeyframeTime: null,
+          outPrevKeyframeTime: null,
+          outPrevKeyframeSeconds: null,
+          outNextKeyframeTime: null,
+          outNextKeyframeDelta: null,
+          outNextKeyframeSeconds: null,
+          subtitleExtraSeconds: null,
           message: '',
         })
 
         try {
-          const pre = await invoke('lossless_preflight', { inputPath, inTime, outTime, ffmpegBinDir })
+          const pre = await invoke('lossless_preflight', {
+            inputPath,
+            inTime,
+            outTime,
+            ffmpegBinDir,
+            subtitleStreamIndex: selectedSubtitleIndex,
+            subtitleHandling,
+          })
           if (losslessPreflightReqRef.current !== requestId) return
 
           const shift = typeof pre?.start_shift_seconds === 'number' ? pre.start_shift_seconds : null
@@ -1207,21 +1247,22 @@ function App() {
           const nextKeyframe = typeof pre?.next_keyframe_seconds === 'number' ? pre.next_keyframe_seconds : null
           const endShift = typeof pre?.end_shift_seconds === 'number' ? pre.end_shift_seconds : null
           const outKeyframe = typeof pre?.out_nearest_keyframe_seconds === 'number' ? pre.out_nearest_keyframe_seconds : null
+          const outPrevKeyframe = typeof pre?.out_prev_keyframe_seconds === 'number' ? pre.out_prev_keyframe_seconds : null
+          const outNextKeyframe = typeof pre?.out_next_keyframe_seconds === 'number' ? pre.out_next_keyframe_seconds : null
+          const subtitleExtra = typeof pre?.subtitle_extra_seconds === 'number' ? pre.subtitle_extra_seconds : null
 
-          // Check if EITHER IN or OUT doesn't align with keyframes
           const hasInMisalignment = shift != null && shift > 0.0005
           const hasOutMisalignment = endShift != null && endShift > 0.0005
+          const hasSubtitleExtra = subtitleExtra != null && subtitleExtra > 0.0005
 
-          if ((hasInMisalignment || hasOutMisalignment) && keyframe != null) {
-            const keyframeLabel = secondsToTimeRounded(keyframe)
-            const nextLabel = nextKeyframe != null ? secondsToTimeRounded(nextKeyframe) : null
-            const nextDelta =
-              nextKeyframe != null && inParsed.ok && nextKeyframe > inParsed.seconds
-                ? formatDuration(nextKeyframe - inParsed.seconds)
-                : null
-
-            // Transition to report view
-            const outKeyframeLabel = outKeyframe != null ? secondsToTimeRounded(outKeyframe) : null
+          if ((hasInMisalignment || hasOutMisalignment || hasSubtitleExtra) && keyframe != null) {
+            const keyframeLabel = secondsToTimeWithMillis(keyframe)
+            const nextLabel = nextKeyframe != null ? secondsToTimeWithMillis(nextKeyframe) : null
+            const nextDelta = nextKeyframe != null && inParsed.ok && nextKeyframe > inParsed.seconds ? formatDuration(nextKeyframe - inParsed.seconds) : null
+            const outKeyframeLabel = outKeyframe != null ? secondsToTimeWithMillis(outKeyframe) : null
+            const outPrevLabel = outPrevKeyframe != null ? secondsToTimeWithMillis(outPrevKeyframe) : null
+            const outNextLabel = outNextKeyframe != null ? secondsToTimeWithMillis(outNextKeyframe) : null
+            const outNextDelta = outNextKeyframe != null && outParsed.ok && outNextKeyframe > outParsed.seconds ? formatDuration(outNextKeyframe - outParsed.seconds) : null
             setLosslessModal({
               open: true,
               checking: false,
@@ -1235,12 +1276,18 @@ function App() {
               nextKeyframeSeconds: nextKeyframe,
               endShiftSeconds: endShift,
               outKeyframeTime: outKeyframeLabel,
+              outPrevKeyframeTime: outPrevLabel,
+              outPrevKeyframeSeconds: outPrevKeyframe,
+              outNextKeyframeTime: outNextLabel,
+              outNextKeyframeDelta: outNextDelta,
+              outNextKeyframeSeconds: outNextKeyframe,
+              subtitleExtraSeconds: subtitleExtra,
               message: '',
             })
             return
           }
 
-          // No issue, close modal and proceed
+          // No alignment issues, close modal and proceed
           setLosslessModal({
             open: false,
             checking: false,
@@ -1253,6 +1300,14 @@ function App() {
             nextKeyframeTime: null,
             nextKeyframeDelta: null,
             nextKeyframeSeconds: null,
+            endShiftSeconds: null,
+            outKeyframeTime: null,
+            outPrevKeyframeTime: null,
+            outPrevKeyframeSeconds: null,
+            outNextKeyframeTime: null,
+            outNextKeyframeDelta: null,
+            outNextKeyframeSeconds: null,
+            subtitleExtraSeconds: null,
           })
         } catch (e) {
           if (losslessPreflightReqRef.current !== requestId) return
@@ -1267,6 +1322,14 @@ function App() {
             nextKeyframeTime: null,
             nextKeyframeDelta: null,
             nextKeyframeSeconds: null,
+            endShiftSeconds: null,
+            outKeyframeTime: null,
+            outPrevKeyframeTime: null,
+            outPrevKeyframeSeconds: null,
+            outNextKeyframeTime: null,
+            outNextKeyframeDelta: null,
+            outNextKeyframeSeconds: null,
+            subtitleExtraSeconds: null,
             message: 'Lossless can only cut on keyframes, so the clip may start earlier than IN. Use Exact for frame-accurate start.',
           })
           logDebug(`Lossless preflight failed: ${String(e?.message || e)}`, 'error')
@@ -1278,7 +1341,12 @@ function App() {
     setBusyAction('cutting')
     logUser('Cutting…', 'info')
     setOutputPath('')
+    const cutStartTime = performance.now()
     try {
+      const subtitleHandling =
+        mode === 'lossless'
+          ? (selectedSubtitleIndex >= 0 ? losslessSubtitleHandling : 'exclude')
+          : (selectedSubtitleIndex >= 0 ? 'trim' : 'exclude')
       const result = await invoke('trim_media', {
         inputPath,
         inTime,
@@ -1286,6 +1354,7 @@ function App() {
         mode,
         audioStreamIndex: selectedAudioIndex,
         subtitleStreamIndex: selectedSubtitleIndex,
+        subtitleHandling,
         ffmpegBinDir,
       })
 
@@ -1294,8 +1363,11 @@ function App() {
         return
       }
 
+      const cutEndTime = performance.now()
+      const elapsedSeconds = (cutEndTime - cutStartTime) / 1000
+
       setOutputPath(result.output_path)
-      logUser('Cut finished.', 'success')
+      logUser(`Cut finished in ${elapsedSeconds.toFixed(2)}s`, 'success')
       logDebug(`Done. Output: ${result.output_path}`, 'success')
     } catch (e) {
       const message = typeof e === 'string' ? e : e?.message ? String(e.message) : String(e)
@@ -1307,6 +1379,21 @@ function App() {
   }
 
   async function proceedLosslessAfterModal() {
+    // Apply selected keyframe times to main UI
+    if (losslessModal.selectedInKeyframeSeconds != null) {
+      const roundedSeconds = Math.round(losslessModal.selectedInKeyframeSeconds)
+      const timeForUI = secondsToTime(roundedSeconds)
+      setInTime(timeForUI)
+      setTouchedIn(true)
+    }
+
+    if (losslessModal.selectedOutKeyframeSeconds != null) {
+      const roundedSeconds = Math.round(losslessModal.selectedOutKeyframeSeconds)
+      const timeForUI = secondsToTime(roundedSeconds)
+      setOutTime(timeForUI)
+      setTouchedOut(true)
+    }
+
     skipLosslessPreflightKeyRef.current = losslessPreflightKey(inputPath, inTime, outTime, ffmpegBinDir)
     setLosslessModal({
       open: false,
@@ -1320,6 +1407,16 @@ function App() {
       nextKeyframeTime: null,
       nextKeyframeDelta: null,
       nextKeyframeSeconds: null,
+      endShiftSeconds: null,
+      outKeyframeTime: null,
+      outPrevKeyframeTime: null,
+      outNextKeyframeTime: null,
+      outNextKeyframeDelta: null,
+      outNextKeyframeSeconds: null,
+      outPrevKeyframeSeconds: null,
+      subtitleExtraSeconds: null,
+      selectedInKeyframeSeconds: null,
+      selectedOutKeyframeSeconds: null,
     })
     requestAnimationFrame(() => handleCut())
   }
@@ -1337,6 +1434,13 @@ function App() {
       nextKeyframeTime: null,
       nextKeyframeDelta: null,
       nextKeyframeSeconds: null,
+      endShiftSeconds: null,
+      outKeyframeTime: null,
+      outPrevKeyframeTime: null,
+      outNextKeyframeTime: null,
+      outNextKeyframeDelta: null,
+      outNextKeyframeSeconds: null,
+      subtitleExtraSeconds: null,
     })
     setMode('exact')
     logUser('Switched to Exact mode.', 'info')
@@ -1356,44 +1460,85 @@ function App() {
       nextKeyframeTime: null,
       nextKeyframeDelta: null,
       nextKeyframeSeconds: null,
+      endShiftSeconds: null,
+      outKeyframeTime: null,
+      outPrevKeyframeTime: null,
+      outNextKeyframeTime: null,
+      outNextKeyframeDelta: null,
+      outNextKeyframeSeconds: null,
+      subtitleExtraSeconds: null,
     })
     setLosslessTipExpanded(false)
+  }
+
+  function closeLosslessSubtitleModal() {
+    setLosslessSubtitleModalOpen(false)
+  }
+
+  function switchToExactFromSubtitleModal() {
+    setLosslessSubtitleModalOpen(false)
+    setMode('exact')
+    logUser('Switched to Exact mode.', 'info')
   }
 
   function useNextKeyframe() {
     if (losslessModal.nextKeyframeSeconds == null) return
 
-    // The user selected this keyframe from the "next keyframe" suggestion
-    // We already know from the previous check that this IS a valid keyframe
+    // Track selection in modal state only - don't update main UI yet
     const exactSeconds = losslessModal.nextKeyframeSeconds
-    const milliseconds = Math.round((exactSeconds - Math.floor(exactSeconds)) * 1000)
-
-    // Send the EXACT time with milliseconds to the backend
-    // Backend now accepts hh:mm:ss.milliseconds format (e.g., 00:00:03.170)
-    // This ensures FFmpeg cuts at the exact keyframe position
-    const timeForBackend = formatSecondsToHhMmSsWithMillis(exactSeconds)
-    const displayTime = milliseconds > 0 ? `${secondsToTime(Math.floor(exactSeconds))} (${milliseconds}ms)` : secondsToTime(Math.floor(exactSeconds))
-
-    setInTime(timeForBackend)
-    setTouchedIn(true)
-
-    logDebug(`[Keyframe] User selected keyframe at ${exactSeconds}s → setting IN to ${timeForBackend}`, 'success')
 
     setLosslessModal({
-      open: true,
-      checking: false,
-      inTime: displayTime,
-      outTime: losslessModal.outTime,
+      ...losslessModal,
+      selectedInKeyframeSeconds: exactSeconds,
       shiftSeconds: 0,  // Zero shift - perfect alignment
-      keyframeTime: displayTime,
-      keyframeSeconds: exactSeconds,
-      nextKeyframeTime: null,
-      nextKeyframeDelta: null,
-      nextKeyframeSeconds: null,
-      message: '',
     })
 
-    logUser(`IN time set to ${timeForBackend} (keyframe at ${displayTime})`, 'success')
+    logUser(`Selected IN keyframe at ${secondsToTimeWithMillis(exactSeconds)}`, 'success')
+  }
+
+  function usePrevKeyframe() {
+    if (losslessModal.keyframeSeconds == null) return
+
+    // Track selection in modal state only - don't update main UI yet
+    const exactSeconds = losslessModal.keyframeSeconds
+
+    setLosslessModal({
+      ...losslessModal,
+      selectedInKeyframeSeconds: exactSeconds,
+      shiftSeconds: 0,  // Zero shift - perfect alignment
+    })
+
+    logUser(`Selected IN keyframe at ${secondsToTimeWithMillis(exactSeconds)}`, 'success')
+  }
+
+  function useNextOutKeyframe() {
+    if (losslessModal.outNextKeyframeSeconds == null) return
+
+    // Track selection in modal state only - don't update main UI yet
+    const exactSeconds = losslessModal.outNextKeyframeSeconds
+
+    setLosslessModal({
+      ...losslessModal,
+      selectedOutKeyframeSeconds: exactSeconds,
+      endShiftSeconds: 0,  // Zero shift - perfect alignment
+    })
+
+    logUser(`Selected OUT keyframe at ${secondsToTimeWithMillis(exactSeconds)}`, 'success')
+  }
+
+  function usePrevOutKeyframe() {
+    if (losslessModal.outPrevKeyframeSeconds == null) return
+
+    // Track selection in modal state only - don't update main UI yet
+    const exactSeconds = losslessModal.outPrevKeyframeSeconds
+
+    setLosslessModal({
+      ...losslessModal,
+      selectedOutKeyframeSeconds: exactSeconds,
+      endShiftSeconds: 0,  // Zero shift - perfect alignment
+    })
+
+    logUser(`Selected OUT keyframe at ${secondsToTimeWithMillis(exactSeconds)}`, 'success')
   }
 
   async function handleRevealOutput() {
@@ -1497,6 +1642,36 @@ function App() {
     <div className="vt-root">
 
       <div className="vt-shell">
+        {losslessSubtitleModalOpen ? (
+          <div
+            className="vt-modalOverlay"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Lossless subtitles warning"
+            onMouseDown={(e) => {
+              if (e.target === e.currentTarget) {
+                closeLosslessSubtitleModal()
+              }
+            }}
+          >
+            <div className="vt-modal">
+              <div className="vt-modalHeader">
+                <p className="vt-modalTitle">Subtitles require Exact mode</p>
+              </div>
+              <div className="vt-modalBody">
+                Cannot copy subtitles in lossless mode - they affect keyframes. Use Exact mode.
+              </div>
+              <div className="vt-modalActions">
+                <button type="button" className="vt-button vt-buttonCancel" onClick={closeLosslessSubtitleModal}>
+                  Cancel
+                </button>
+                <button type="button" className="vt-button vt-buttonPrimary" onClick={switchToExactFromSubtitleModal}>
+                  Switch to Exact Mode
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
         {losslessModal.open ? (
           <div
             className="vt-modalOverlay"
@@ -1549,83 +1724,189 @@ function App() {
                 <>
                   <div className="vt-modalHeader">
                     <p className="vt-modalTitle">
-                      {losslessModal.shiftSeconds != null && losslessModal.shiftSeconds > 0.0005
-                        ? '⚠ Keyframe Alignment Issue'
-                        : '✓ Keyframe Alignment Success'}
+                      {(losslessModal.shiftSeconds != null && losslessModal.shiftSeconds > 0.0005) || (losslessModal.endShiftSeconds != null && losslessModal.endShiftSeconds > 0.0005)
+                        ? 'Keyframe Alignment Report'
+                        : 'Keyframe Alignment Success'}
                     </p>
                   </div>
-                  <div className={`vt-modalBody vt-losslessReport ${losslessModal.shiftSeconds != null && losslessModal.shiftSeconds > 0.0005 ? '' : 'vt-losslessReportSuccess'}`}>
-                    <div className={`vt-losslessWarning ${(losslessModal.shiftSeconds != null && losslessModal.shiftSeconds > 0.0005) || (losslessModal.endShiftSeconds != null && losslessModal.endShiftSeconds > 0.0005) ? '' : 'vt-losslessWarningSuccess'}`}>
-                      <p><strong>Lossless mode can only cut at keyframe positions.</strong></p>
-                      {losslessModal.shiftSeconds != null && losslessModal.shiftSeconds > 0.0005 ? (
-                        <p>• Your requested IN time doesn't align with a keyframe, so the clip will start earlier.</p>
-                      ) : (
-                        <p className="vt-losslessSuccess">✓ Your requested IN time aligns perfectly with a keyframe!</p>
-                      )}
-                      {losslessModal.endShiftSeconds != null && losslessModal.endShiftSeconds > 0.0005 ? (
-                        <p>• Your requested OUT time doesn't align with a keyframe, so the clip will end later (≈{formatDuration(losslessModal.endShiftSeconds)} extra).</p>
-                      ) : losslessModal.endShiftSeconds != null ? (
-                        <p className="vt-losslessSuccess">✓ Your requested OUT time aligns perfectly with a keyframe!</p>
-                      ) : null}
-                    </div>
+                  <div className={`vt-modalBody vt-losslessReport ${(losslessModal.shiftSeconds != null && losslessModal.shiftSeconds > 0.0005) || (losslessModal.endShiftSeconds != null && losslessModal.endShiftSeconds > 0.0005) ? '' : 'vt-losslessReportSuccess'}`}>
 
-                    <div className="vt-losslessComparison">
-                      <div className="vt-losslessComparisonRow">
-                        <div className="vt-losslessLabel">Your Request</div>
-                        <div className="vt-losslessTimeRange">
-                          <span className="vt-losslessTime">{losslessModal.inTime}</span>
-                          <span className="vt-losslessArrow">→</span>
-                          <span className="vt-losslessTime">{losslessModal.outTime}</span>
+                    {(losslessModal.keyframeTime || losslessModal.nextKeyframeTime) && (
+                      <div className="vt-losslessKeyframeBlock">
+                        <div className="vt-losslessKeyframeHeader">
+                          <span className="vt-losslessKeyframeTitle">IN POINT</span>
                         </div>
-                      </div>
-
-                      <div className="vt-losslessDivider" />
-
-                      <div className="vt-losslessComparisonRow">
-                        <div className="vt-losslessLabel">Actual Result</div>
-                        <div className="vt-losslessTimeRange">
-                          <span className={`vt-losslessTime ${losslessModal.shiftSeconds != null && losslessModal.shiftSeconds > 0.0005 ? 'vt-losslessHighlight' : ''}`}>
-                            {losslessModal.keyframeTime}
-                          </span>
-                          <span className="vt-losslessArrow">→</span>
-                          <span className={`vt-losslessTime ${losslessModal.endShiftSeconds != null && losslessModal.endShiftSeconds > 0.0005 ? 'vt-losslessHighlight' : ''}`}>
-                            {losslessModal.endShiftSeconds != null && losslessModal.endShiftSeconds > 0.0005 && losslessModal.outKeyframeTime ? losslessModal.outKeyframeTime : losslessModal.outTime}
-                          </span>
-                        </div>
-                      </div>
-
-                      {losslessModal.shiftSeconds != null && losslessModal.shiftSeconds > 0.0005 && (
-                        <div className="vt-losslessImpact">
-                          <span className="vt-losslessImpactLabel">Extra footage at start:</span>
-                          <span className="vt-losslessImpactValue">{formatDuration(losslessModal.shiftSeconds)}</span>
-                        </div>
-                      )}
-                      {losslessModal.endShiftSeconds != null && losslessModal.endShiftSeconds > 0.0005 && (
-                        <div className="vt-losslessImpact">
-                          <span className="vt-losslessImpactLabel">Extra footage at end:</span>
-                          <span className="vt-losslessImpactValue">{formatDuration(losslessModal.endShiftSeconds)}</span>
-                        </div>
-                      )}
-                    </div>
-
-                    {losslessModal.nextKeyframeTime && (
-                      <div className="vt-losslessAlternative">
-                        <p className="vt-losslessAlternativeTitle">Alternative: Next keyframe</p>
-                        <div className="vt-losslessAlternativeTime">
-                          <div className="vt-losslessAlternativeTimeInfo">
-                            <span>{losslessModal.nextKeyframeTime}</span>
-                            {losslessModal.nextKeyframeDelta && (
-                              <span className="vt-losslessAlternativeDelta">(+{losslessModal.nextKeyframeDelta})</span>
-                            )}
+                        <div className="vt-losslessKeyframeRow">
+                          {losslessModal.keyframeTime && (
+                            <div className="vt-losslessKeyframeCell">
+                              <div className="vt-losslessKeyframeLabel">Before</div>
+                              <button
+                                type="button"
+                                className={`vt-losslessKeyframeButton vt-losslessKeyframeButtonBefore ${
+                                  losslessModal.selectedInKeyframeSeconds === losslessModal.keyframeSeconds
+                                    ? 'vt-losslessKeyframeButtonSelected'
+                                    : ''
+                                }`}
+                                disabled={losslessModal.selectedInKeyframeSeconds === losslessModal.keyframeSeconds}
+                                onClick={usePrevKeyframe}
+                              >
+                                <span style={losslessModal.selectedInKeyframeSeconds === losslessModal.keyframeSeconds ? { textDecoration: 'line-through' } : {}}>
+                                  {losslessModal.keyframeTime}
+                                </span>
+                              </button>
+                              <div className="vt-losslessKeyframeMeta">
+                                {losslessModal.selectedInKeyframeSeconds == null && losslessModal.keyframeSeconds != null && inParsed.ok
+                                  ? `-${formatDuration(Math.max(0, inParsed.seconds - losslessModal.keyframeSeconds))}`
+                                  : (losslessModal.selectedInKeyframeSeconds == null ? '-' : '\u00A0')}
+                              </div>
+                            </div>
+                          )}
+                          <div className="vt-losslessKeyframeCell vt-losslessKeyframeRequested">
+                            <div className="vt-losslessKeyframeLabel">Requested</div>
+                            <span
+                              className={`vt-losslessKeyframeTime ${
+                                losslessModal.selectedInKeyframeSeconds != null || (losslessModal.shiftSeconds != null && losslessModal.shiftSeconds <= 0.0005)
+                                  ? 'vt-losslessKeyframeTimeGood'
+                                  : 'vt-losslessKeyframeTimeBad'
+                              }`}
+                            >
+                              {losslessModal.selectedInKeyframeSeconds != null || (losslessModal.shiftSeconds != null && losslessModal.shiftSeconds <= 0.0005)
+                                ? ''
+                                : '⚠ '}
+                              {losslessModal.selectedInKeyframeSeconds != null
+                                ? secondsToTimeWithMillis(losslessModal.selectedInKeyframeSeconds)
+                                : losslessModal.inTime}
+                            </span>
+                            <div className="vt-losslessKeyframeMeta">&nbsp;</div>
                           </div>
-                          <div className="vt-losslessAlternativeButton">
-                            <button type="button" className="vt-button vt-buttonPrimary" onClick={useNextKeyframe}>
-                              Use This Keyframe
-                            </button>
-                          </div>
+                          {losslessModal.nextKeyframeTime && (
+                            <div className="vt-losslessKeyframeCell">
+                              <div className="vt-losslessKeyframeLabel">After</div>
+                              <button
+                                type="button"
+                                className={`vt-losslessKeyframeButton vt-losslessKeyframeButtonAfter ${
+                                  losslessModal.selectedInKeyframeSeconds === losslessModal.nextKeyframeSeconds
+                                    ? 'vt-losslessKeyframeButtonSelected'
+                                    : ''
+                                }`}
+                                disabled={losslessModal.selectedInKeyframeSeconds === losslessModal.nextKeyframeSeconds}
+                                onClick={useNextKeyframe}
+                              >
+                                <span style={losslessModal.selectedInKeyframeSeconds === losslessModal.nextKeyframeSeconds ? { textDecoration: 'line-through' } : {}}>
+                                  {losslessModal.nextKeyframeTime}
+                                </span>
+                              </button>
+                              <div className="vt-losslessKeyframeMeta">
+                                {losslessModal.selectedInKeyframeSeconds == null && losslessModal.nextKeyframeSeconds != null && inParsed.ok
+                                  ? `+${formatDuration(Math.max(0, losslessModal.nextKeyframeSeconds - inParsed.seconds))}`
+                                  : (losslessModal.selectedInKeyframeSeconds == null ? '+' : '\u00A0')}
+                              </div>
+                            </div>
+                          )}
                         </div>
+                        {losslessModal.shiftSeconds != null && losslessModal.shiftSeconds > 0.0005 && losslessModal.selectedInKeyframeSeconds == null && (
+                          <p className="vt-losslessKeyframeHint">
+                            ⚠ Requested time not on a keyframe. Choose Before or After keyframe instead.
+                          </p>
+                        )}
                       </div>
                     )}
+
+                    {(losslessModal.outPrevKeyframeTime || losslessModal.outNextKeyframeTime) && (
+                      <div className="vt-losslessKeyframeBlock">
+                        <div className="vt-losslessKeyframeHeader">
+                          <span className="vt-losslessKeyframeTitle">OUT POINT</span>
+                        </div>
+                        <div className="vt-losslessKeyframeRow">
+                          {losslessModal.outPrevKeyframeTime && (
+                            <div className="vt-losslessKeyframeCell">
+                              <div className="vt-losslessKeyframeLabel">Before</div>
+                              <button
+                                type="button"
+                                className={`vt-losslessKeyframeButton vt-losslessKeyframeButtonBefore ${
+                                  losslessModal.selectedOutKeyframeSeconds === losslessModal.outPrevKeyframeSeconds
+                                    ? 'vt-losslessKeyframeButtonSelected'
+                                    : ''
+                                }`}
+                                disabled={losslessModal.selectedOutKeyframeSeconds === losslessModal.outPrevKeyframeSeconds}
+                                onClick={usePrevOutKeyframe}
+                              >
+                                <span style={losslessModal.selectedOutKeyframeSeconds === losslessModal.outPrevKeyframeSeconds ? { textDecoration: 'line-through' } : {}}>
+                                  {losslessModal.outPrevKeyframeTime}
+                                </span>
+                              </button>
+                              <div className="vt-losslessKeyframeMeta">
+                                {losslessModal.selectedOutKeyframeSeconds == null && losslessModal.outPrevKeyframeSeconds != null && outParsed.ok
+                                  ? `-${formatDuration(Math.max(0, outParsed.seconds - losslessModal.outPrevKeyframeSeconds))}`
+                                  : (losslessModal.selectedOutKeyframeSeconds == null ? '-' : '\u00A0')}
+                              </div>
+                            </div>
+                          )}
+                          <div className="vt-losslessKeyframeCell vt-losslessKeyframeRequested">
+                            <div className="vt-losslessKeyframeLabel">Requested</div>
+                            <span
+                              className={`vt-losslessKeyframeTime ${
+                                losslessModal.selectedOutKeyframeSeconds != null || (losslessModal.endShiftSeconds != null && losslessModal.endShiftSeconds <= 0.0005)
+                                  ? 'vt-losslessKeyframeTimeGood'
+                                  : 'vt-losslessKeyframeTimeBad'
+                              }`}
+                            >
+                              {losslessModal.selectedOutKeyframeSeconds != null || (losslessModal.endShiftSeconds != null && losslessModal.endShiftSeconds <= 0.0005)
+                                ? ''
+                                : '⚠ '}
+                              {losslessModal.selectedOutKeyframeSeconds != null
+                                ? secondsToTimeWithMillis(losslessModal.selectedOutKeyframeSeconds)
+                                : losslessModal.outTime}
+                            </span>
+                            <div className="vt-losslessKeyframeMeta">&nbsp;</div>
+                          </div>
+                          {losslessModal.outNextKeyframeTime && (
+                            <div className="vt-losslessKeyframeCell">
+                              <div className="vt-losslessKeyframeLabel">After</div>
+                              <button
+                                type="button"
+                                className={`vt-losslessKeyframeButton vt-losslessKeyframeButtonAfter ${
+                                  losslessModal.selectedOutKeyframeSeconds === losslessModal.outNextKeyframeSeconds
+                                    ? 'vt-losslessKeyframeButtonSelected'
+                                    : ''
+                                }`}
+                                disabled={losslessModal.selectedOutKeyframeSeconds === losslessModal.outNextKeyframeSeconds}
+                                onClick={useNextOutKeyframe}
+                              >
+                                <span style={losslessModal.selectedOutKeyframeSeconds === losslessModal.outNextKeyframeSeconds ? { textDecoration: 'line-through' } : {}}>
+                                  {losslessModal.outNextKeyframeTime}
+                                </span>
+                              </button>
+                              <div className="vt-losslessKeyframeMeta">
+                                {losslessModal.selectedOutKeyframeSeconds == null && losslessModal.outNextKeyframeSeconds != null && outParsed.ok
+                                  ? `+${formatDuration(Math.max(0, losslessModal.outNextKeyframeSeconds - outParsed.seconds))}`
+                                  : (losslessModal.selectedOutKeyframeSeconds == null ? '+' : '\u00A0')}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                        {losslessModal.endShiftSeconds != null && losslessModal.endShiftSeconds > 0.0005 && losslessModal.selectedOutKeyframeSeconds == null && (
+                          <p className="vt-losslessKeyframeHint">
+                            ⚠ Requested time not on a keyframe. Choose Before or After keyframe instead.
+                          </p>
+                        )}
+                      </div>
+                    )}
+
+                    <div className={`vt-losslessDuration ${
+                      (losslessModal.selectedInKeyframeSeconds != null && losslessModal.selectedOutKeyframeSeconds != null) ||
+                      ((losslessModal.shiftSeconds == null || losslessModal.shiftSeconds <= 0.0005) &&
+                       (losslessModal.endShiftSeconds == null || losslessModal.endShiftSeconds <= 0.0005))
+                        ? 'vt-losslessDurationGood'
+                        : 'vt-losslessDurationBad'
+                    }`}>
+                      Total Duration: <span>{(() => {
+                        const inSeconds = losslessModal.selectedInKeyframeSeconds ?? (inParsed.ok ? inParsed.seconds : 0)
+                        const outSeconds = losslessModal.selectedOutKeyframeSeconds ?? (outParsed.ok ? outParsed.seconds : 0)
+                        const duration = Math.max(0, outSeconds - inSeconds)
+                        return secondsToTimeWithMillis(duration)
+                      })()}</span>
+                    </div>
 
                     <div className="vt-losslessTip">
                       <p style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => setLosslessTipExpanded(!losslessTipExpanded)}>
@@ -1646,7 +1927,15 @@ function App() {
                     <button type="button" className="vt-button" onClick={switchToExactFromModal}>
                       Switch to Exact
                     </button>
-                    <button type="button" className="vt-button vt-buttonPrimary" onClick={proceedLosslessAfterModal}>
+                    <button
+                      type="button"
+                      className="vt-button vt-buttonPrimary"
+                      onClick={proceedLosslessAfterModal}
+                      disabled={
+                        (losslessModal.shiftSeconds != null && losslessModal.shiftSeconds > 0.0005 && losslessModal.selectedInKeyframeSeconds == null) ||
+                        (losslessModal.endShiftSeconds != null && losslessModal.endShiftSeconds > 0.0005 && losslessModal.selectedOutKeyframeSeconds == null)
+                      }
+                    >
                       Continue Lossless
                     </button>
                   </div>
@@ -2085,7 +2374,9 @@ function App() {
                     <button
                       type="button"
                       className={`vt-segBtn ${mode === 'lossless' ? 'vt-segBtnActive' : ''}`}
-                      onClick={() => setMode('lossless')}
+                      onClick={() => {
+                        setMode('lossless')
+                      }}
                       disabled={busy}
                     >
                       Lossless
@@ -2101,15 +2392,9 @@ function App() {
                   </div>
                   <div className="vt-modeHelp">
                     {mode === 'lossless'
-                      ? 'Lossless is fastest (stream copy). Clip may start at the nearest keyframe.'
+                      ? '✓ No re-encoding (instant export) • ⚠ Cuts must align to keyframes'
                       : 'Exact re-encodes video for frame-accurate start. Audio/subtitles are copied.'}
                   </div>
-                  {false && (
-                    <div className="vt-keyframeWarning">
-                      ⚠ Lossless starts on keyframes. Your IN is {keyframeInfo.inTime}; the nearest keyframe at/before IN is {keyframeInfo.keyframeTime}.
-                      The output will start at {keyframeInfo.keyframeTime} and include {keyframeInfo.extraAtStart} extra before your IN. Use Exact for frame-accurate start.
-                    </div>
-                  )}
                 </div>
 
                 <div className="vt-label vt-labelMiddle">Tracks</div>
@@ -2172,7 +2457,6 @@ function App() {
                           )}
                         </select>
                       </div>
-
                     </div>
                   </div>
 
@@ -2266,3 +2550,5 @@ function App() {
 }
 
 export default App
+
+

@@ -97,7 +97,10 @@ struct LosslessPreflightResult {
   start_shift_seconds: Option<f64>,
   out_time_seconds: f64,
   out_nearest_keyframe_seconds: Option<f64>,
+  out_prev_keyframe_seconds: Option<f64>,
+  out_next_keyframe_seconds: Option<f64>,
   end_shift_seconds: Option<f64>,
+  subtitle_extra_seconds: Option<f64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -220,6 +223,26 @@ fn format_srt_timestamp(seconds: f64) -> String {
   format!("{:02}:{:02}:{:02},{:03}", h, m, s, ms)
 }
 
+fn max_srt_end_seconds_in_range(input: &str, start_min: f64, start_max: f64) -> Option<f64> {
+  let mut max_end: Option<f64> = None;
+  for line in input.lines() {
+    let clean = line.trim();
+    if !clean.contains("-->") {
+      continue;
+    }
+    let mut parts = clean.split("-->");
+    let start_raw = parts.next().unwrap_or("").trim();
+    let end_raw = parts.next().unwrap_or("").trim();
+    let Some(start_ts) = parse_srt_timestamp(start_raw) else { continue };
+    let Some(end_ts) = parse_srt_timestamp(end_raw) else { continue };
+    if start_ts + 1e-6 < start_min || start_ts - 1e-6 > start_max {
+      continue;
+    }
+    max_end = Some(max_end.map(|v| v.max(end_ts)).unwrap_or(end_ts));
+  }
+  max_end
+}
+
 fn trim_srt_text(input: &str, start_seconds: f64, duration_seconds: f64) -> String {
   let mut blocks: Vec<Vec<String>> = Vec::new();
   let mut current: Vec<String> = Vec::new();
@@ -275,6 +298,42 @@ fn trim_srt_text(input: &str, start_seconds: f64, duration_seconds: f64) -> Stri
     index += 1;
   }
   out
+}
+
+fn extract_srt_to_path(
+  ffmpeg_path: &Path,
+  input_path: &str,
+  subtitle_stream_index: i32,
+  output_path: &Path,
+) -> Result<(), String> {
+  let mut sub_cmd = Command::new(ffmpeg_path);
+  apply_no_window(&mut sub_cmd);
+  sub_cmd
+    .args(["-v", "error", "-i"])
+    .arg(input_path)
+    .args(["-map", &format!("0:{subtitle_stream_index}")])
+    .args(["-c:s", "srt"])
+    .arg(output_path)
+    .stdin(Stdio::null())
+    .stdout(Stdio::piped())
+    .stderr(Stdio::piped());
+
+  let sub_out = sub_cmd.output().map_err(|e| {
+    if e.kind() == ErrorKind::NotFound {
+      "Failed to run ffmpeg for subtitles: program not found".to_string()
+    } else {
+      format!("Failed to run ffmpeg for subtitles: {e}")
+    }
+  })?;
+  if !sub_out.status.success() {
+    let stderr = String::from_utf8_lossy(&sub_out.stderr).trim().to_string();
+    return Err(if stderr.is_empty() {
+      "ffmpeg subtitle extract failed".to_string()
+    } else {
+      format!("ffmpeg subtitle extract failed: {stderr}")
+    });
+  }
+  Ok(())
 }
 
 // Parse time in format hh:mm:ss or hh:mm:ss.milliseconds
@@ -1700,14 +1759,25 @@ fn build_output_path(input_path: &str, mode: &str, in_time: &str, out_time: &str
 
   let suffix_in = time_for_filename(in_time);
   let suffix_out = time_for_filename(out_time);
-  let filename = format!(
-    "{}_clip_{}_{}_{}.mkv",
+  let base_name = format!(
+    "{}_clip_{}_{}_{}",
     stem,
     mode,
     suffix_in,
     suffix_out
   );
-  Ok(parent.join(filename))
+  let mut candidate = parent.join(format!("{base_name}.mkv"));
+  if !candidate.exists() {
+    return Ok(candidate);
+  }
+  for n in 1..1000 {
+    let name = format!("{base_name} ({n}).mkv");
+    candidate = parent.join(name);
+    if !candidate.exists() {
+      return Ok(candidate);
+    }
+  }
+  Err("Could not generate a unique output filename".to_string())
 }
 
 #[tauri::command]
@@ -1951,13 +2021,36 @@ fn run_ffprobe_keyframes(
 }
 
 #[tauri::command]
-async fn lossless_preflight(input_path: String, in_time: String, out_time: String, ffmpeg_bin_dir: String) -> Result<LosslessPreflightResult, String> {
-  tauri::async_runtime::spawn_blocking(move || lossless_preflight_sync(input_path, in_time, out_time, ffmpeg_bin_dir))
+async fn lossless_preflight(
+  input_path: String,
+  in_time: String,
+  out_time: String,
+  ffmpeg_bin_dir: String,
+  subtitle_stream_index: i32,
+  subtitle_handling: String,
+) -> Result<LosslessPreflightResult, String> {
+  tauri::async_runtime::spawn_blocking(move || {
+    lossless_preflight_sync(
+      input_path,
+      in_time,
+      out_time,
+      ffmpeg_bin_dir,
+      subtitle_stream_index,
+      subtitle_handling,
+    )
+  })
     .await
     .map_err(|e| format!("lossless_preflight failed: {e}"))?
 }
 
-fn lossless_preflight_sync(input_path: String, in_time: String, out_time: String, ffmpeg_bin_dir: String) -> Result<LosslessPreflightResult, String> {
+fn lossless_preflight_sync(
+  input_path: String,
+  in_time: String,
+  out_time: String,
+  ffmpeg_bin_dir: String,
+  subtitle_stream_index: i32,
+  subtitle_handling: String,
+) -> Result<LosslessPreflightResult, String> {
   ensure_input_file_exists(&input_path)?;
   validate_ffmpeg_bin_dir(&ffmpeg_bin_dir)?;
 
@@ -1965,7 +2058,7 @@ fn lossless_preflight_sync(input_path: String, in_time: String, out_time: String
   let in_seconds = parse_hh_mm_ss_with_millis(&in_time)?;
   let out_seconds = parse_hh_mm_ss_with_millis(&out_time)?;
 
-  let (_ffmpeg_path, ffprobe_path, _ffmpeg_bin_dir_used) =
+  let (ffmpeg_path, ffprobe_path, _ffmpeg_bin_dir_used) =
     resolve_ffmpeg_binaries_with_fallback(&ffmpeg_bin_dir);
 
   if in_seconds <= 0.0 {
@@ -1976,34 +2069,44 @@ fn lossless_preflight_sync(input_path: String, in_time: String, out_time: String
       start_shift_seconds: Some(0.0),
       out_time_seconds: out_seconds,
       out_nearest_keyframe_seconds: None,
+      out_prev_keyframe_seconds: None,
+      out_next_keyframe_seconds: None,
       end_shift_seconds: None,
+      subtitle_extra_seconds: None,
     });
   }
 
-  let windows = [60.0_f64, 600.0_f64, 3600.0_f64];
-  let mut nearest: Option<f64> = None;
-  for w in windows {
-    let start = (in_seconds - w).max(0.0);
-    let read_intervals = format!("{start}%{in_seconds}");
-    let mut times = run_ffprobe_keyframes(&ffprobe_path, &input_path, &read_intervals)?;
-    times.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-    if let Some(last) = times.last().copied() {
-      nearest = Some(last);
-      break;
-    }
+  // PERFORMANCE OPTIMIZATION: Single-pass keyframe extraction
+  // Instead of 4-12 separate ffprobe calls, extract all keyframes in one wide range
+  // Optimized for MAXIMUM SPEED with smallest effective window
+  let search_window = 60.0; // 1 minute before/after covers 99% of cases (most videos have keyframes every 1-10s)
+  let range_start = (in_seconds - search_window).max(0.0);
+  let range_end = out_seconds + search_window;
+  let read_intervals = format!("{range_start}%{range_end}");
+
+  let mut all_keyframes = run_ffprobe_keyframes(&ffprobe_path, &input_path, &read_intervals)?;
+
+  // If no keyframes found in initial window, try a larger range (up to 5 minutes)
+  if all_keyframes.is_empty() {
+    let large_window = 300.0;
+    let large_start = (in_seconds - large_window).max(0.0);
+    let large_end = out_seconds + large_window;
+    let large_intervals = format!("{large_start}%{large_end}");
+    all_keyframes = run_ffprobe_keyframes(&ffprobe_path, &input_path, &large_intervals)?;
   }
 
-  let mut next: Option<f64> = None;
-  for w in windows {
-    let end = in_seconds + w;
-    let read_intervals = format!("{in_seconds}%{end}");
-    let mut times = run_ffprobe_keyframes(&ffprobe_path, &input_path, &read_intervals)?;
-    times.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-    if let Some(first) = times.into_iter().find(|t| *t + 1e-6 >= in_seconds) {
-      next = Some(first);
-      break;
-    }
-  }
+  // Sort keyframes once
+  all_keyframes.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+
+  // Find keyframes around IN point
+  let nearest = all_keyframes.iter()
+    .filter(|&&kf| kf <= in_seconds + 1e-6)
+    .last()
+    .copied();
+
+  let next = all_keyframes.iter()
+    .find(|&&kf| kf >= in_seconds - 1e-6)
+    .copied();
 
   let start_shift_seconds = nearest.map(|kf| {
     if kf <= in_seconds {
@@ -2013,42 +2116,28 @@ fn lossless_preflight_sync(input_path: String, in_time: String, out_time: String
     }
   });
 
-  // Check keyframes around OUT time
-  let mut out_nearest: Option<f64> = None;
-  for w in windows {
-    let start = (out_seconds - w).max(0.0);
-    let read_intervals = format!("{start}%{out_seconds}");
-    let mut times = run_ffprobe_keyframes(&ffprobe_path, &input_path, &read_intervals)?;
-    times.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-    if let Some(last) = times.last().copied() {
-      if last <= out_seconds + 1e-6 {
-        out_nearest = Some(last);
-        break;
-      }
-    }
-  }
+  // Find keyframes around OUT point
+  let out_prev = all_keyframes.iter()
+    .filter(|&&kf| kf <= out_seconds + 1e-6)
+    .last()
+    .copied();
 
-  // If no keyframe found before/at OUT, find the next keyframe after OUT
-  if out_nearest.is_none() || out_nearest.map(|kf| (out_seconds - kf).abs() > 1e-6).unwrap_or(true) {
-    for w in windows {
-      let end = out_seconds + w;
-      let read_intervals = format!("{out_seconds}%{end}");
-      let mut times = run_ffprobe_keyframes(&ffprobe_path, &input_path, &read_intervals)?;
-      times.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-      if let Some(first) = times.into_iter().find(|t| *t >= out_seconds - 1e-6) {
-        out_nearest = Some(first);
-        break;
-      }
-    }
-  }
+  let out_next = all_keyframes.iter()
+    .find(|&&kf| kf >= out_seconds - 1e-6)
+    .copied();
 
-  let end_shift_seconds = out_nearest.map(|kf| {
+  let out_nearest = out_next.or(out_prev);
+
+  let end_shift_seconds = out_next.map(|kf| {
     if kf >= out_seconds {
       (kf - out_seconds).max(0.0)
     } else {
       0.0
     }
   });
+
+  // Subtitles are not supported in lossless mode - always return None
+  let subtitle_extra_seconds = None;
 
   Ok(LosslessPreflightResult {
     in_time_seconds: in_seconds,
@@ -2057,7 +2146,10 @@ fn lossless_preflight_sync(input_path: String, in_time: String, out_time: String
     start_shift_seconds,
     out_time_seconds: out_seconds,
     out_nearest_keyframe_seconds: out_nearest,
+    out_prev_keyframe_seconds: out_prev,
+    out_next_keyframe_seconds: out_next,
     end_shift_seconds,
+    subtitle_extra_seconds,
   })
 }
 
@@ -2377,8 +2469,11 @@ fn trim_media(
   mode: String,
   audio_stream_index: i32,
   subtitle_stream_index: i32,
+  subtitle_handling: String,
   ffmpeg_bin_dir: String,
 ) -> Result<TrimResult, String> {
+  let start_time = std::time::Instant::now();
+
   ensure_input_file_exists(&input_path)?;
   validate_ffmpeg_bin_dir(&ffmpeg_bin_dir)?;
 
@@ -2403,7 +2498,15 @@ fn trim_media(
     return Err("Output file already exists; choose different times or delete the existing output".to_string());
   }
 
-  let should_trim_subs = subtitle_stream_index >= 0 && (mode == "exact" || mode == "lossless");
+  let subtitle_handling = subtitle_handling.trim().to_lowercase();
+  let subtitle_requested = subtitle_stream_index >= 0;
+  let subtitle_mode = match subtitle_handling.as_str() {
+    "exclude" => "exclude",
+    "trim" => "trim",
+    "copy" => "copy",
+    _ => "trim",
+  };
+  let should_trim_subs = subtitle_requested && subtitle_mode == "trim";
   let mut temp_video_path: Option<PathBuf> = None;
   let mut temp_srt_path: Option<PathBuf> = None;
   if should_trim_subs {
@@ -2439,7 +2542,14 @@ fn trim_media(
   let mut sub_trim_start_seconds = in_seconds_f64;
   let mut sub_trim_duration = duration;
   if should_trim_subs && mode == "lossless" {
-    if let Ok(pre) = lossless_preflight_sync(input_path.clone(), in_time.clone(), ffmpeg_bin_dir.clone()) {
+    if let Ok(pre) = lossless_preflight_sync(
+      input_path.clone(),
+      in_time.clone(),
+      out_time.clone(),
+      ffmpeg_bin_dir.clone(),
+      subtitle_stream_index,
+      subtitle_handling.clone(),
+    ) {
       if let Some(nearest) = pre.nearest_keyframe_seconds {
         if nearest <= in_seconds_f64 {
           sub_trim_start_seconds = nearest;
@@ -2495,8 +2605,8 @@ fn trim_media(
     if rotation_degrees != 0 {
       cmd.args(["-metadata:s:v:0", &format!("rotate={rotation_degrees}")]);
     }
-    // Include subtitles in lossless mode only when not trimming them.
-    if subtitle_stream_index >= 0 && !should_trim_subs {
+    // Include subtitles in lossless mode only when copying them.
+    if subtitle_stream_index >= 0 && subtitle_mode == "copy" {
       cmd.args(["-map", &format!("0:{subtitle_stream_index}")]);
     }
   } else {
@@ -2533,16 +2643,6 @@ fn trim_media(
   eprintln!("[DEBUG] FFmpeg command: {:?}", cmd);
   eprintln!("[DEBUG] Mode: {}, In: {}, Out: {}", mode, in_time_arg, out_time_arg);
 
-  // Also write to a debug file
-  if let Ok(mut f) = std::fs::OpenOptions::new()
-    .create(true)
-    .append(true)
-    .open("C:\\Users\\Fran\\Documents\\ffmpeg_debug.txt") {
-    use std::io::Write;
-    let _ = writeln!(f, "\n=== Mode: {} ===", mode);
-    let _ = writeln!(f, "Command: {:?}", cmd);
-    let _ = writeln!(f, "In: {} -> Out: {} (duration: {})", in_time_arg, out_time_arg, duration_arg);
-  }
 
   let output = cmd
     .output()
@@ -2567,50 +2667,41 @@ fn trim_media(
     let temp_srt = temp_srt_path.clone().ok_or_else(|| "Subtitle temp path missing".to_string())?;
     let temp_video = temp_video_path.clone().ok_or_else(|| "Video temp path missing".to_string())?;
 
-    let mut sub_cmd = Command::new(&ffmpeg_path);
-    apply_no_window(&mut sub_cmd);
-    sub_cmd
-      .args(["-v", "error", "-i"])
-      .arg(&input_path)
-      .args(["-map", &format!("0:{subtitle_stream_index}")])
-      .args(["-c:s", "srt"])
-      .arg(&temp_srt)
-      .stdin(Stdio::null())
-      .stdout(Stdio::piped())
-      .stderr(Stdio::piped());
-
-    let sub_out = sub_cmd.output().map_err(|e| {
-      if e.kind() == ErrorKind::NotFound {
-        "Failed to run ffmpeg for subtitles: program not found".to_string()
-      } else {
-        format!("Failed to run ffmpeg for subtitles: {e}")
-      }
-    })?;
-    if !sub_out.status.success() {
-      let stderr = String::from_utf8_lossy(&sub_out.stderr).trim().to_string();
-      return Err(if stderr.is_empty() {
-        "ffmpeg subtitle extract failed".to_string()
-      } else {
-        format!("ffmpeg subtitle extract failed: {stderr}")
-      });
-    }
+    extract_srt_to_path(&ffmpeg_path, &input_path, subtitle_stream_index, &temp_srt)?;
 
     let srt_raw = fs::read_to_string(&temp_srt)
       .map_err(|e| format!("Failed to read extracted subtitles: {e}"))?;
     let trimmed = trim_srt_text(&srt_raw, sub_trim_start_seconds, sub_trim_duration);
-    fs::write(&temp_srt, trimmed.as_bytes())
-      .map_err(|e| format!("Failed to write trimmed subtitles: {e}"))?;
+
+    // Check if trimmed subtitles are empty or whitespace-only
+    let trimmed_is_empty = trimmed.trim().is_empty();
+
+    if !trimmed_is_empty {
+      fs::write(&temp_srt, trimmed.as_bytes())
+        .map_err(|e| format!("Failed to write trimmed subtitles: {e}"))?;
+    }
 
     let mut mux_cmd = Command::new(&ffmpeg_path);
     apply_no_window(&mut mux_cmd);
+    mux_cmd.args(["-v", "error", "-i"]).arg(&temp_video);
+
+    if trimmed_is_empty {
+      // No subtitles in trimmed range - just copy the video without subtitle muxing
+      eprintln!("[INFO] No subtitles in trimmed time range, skipping subtitle mux.");
+      mux_cmd
+        .args(["-c", "copy"])
+        .arg(&output_path);
+    } else {
+      // Include subtitles
+      mux_cmd
+        .args(["-i"])
+        .arg(&temp_srt)
+        .args(["-map", "0", "-map", "1:0"])
+        .args(["-c", "copy", "-c:s", "srt"])
+        .arg(&output_path);
+    }
+
     mux_cmd
-      .args(["-v", "error", "-i"])
-      .arg(&temp_video)
-      .args(["-i"])
-      .arg(&temp_srt)
-      .args(["-map", "0", "-map", "1:0"])
-      .args(["-c", "copy", "-c:s", "srt"])
-      .arg(&output_path)
       .stdin(Stdio::null())
       .stdout(Stdio::piped())
       .stderr(Stdio::piped());
@@ -2631,18 +2722,18 @@ fn trim_media(
       });
     }
 
-    eprintln!("[INFO] Subtitles trimmed to match clip window.");
-    if let Ok(mut f) = std::fs::OpenOptions::new()
-      .create(true)
-      .append(true)
-      .open("C:\\Users\\Fran\\Documents\\ffmpeg_debug.txt") {
-      use std::io::Write;
-      let _ = writeln!(f, "Info: Subtitles trimmed to match clip window.");
+    if !trimmed_is_empty {
+      eprintln!("[INFO] Subtitles trimmed to match clip window.");
     }
 
     let _ = fs::remove_file(&temp_video);
     let _ = fs::remove_file(&temp_srt);
   }
+
+  let elapsed = start_time.elapsed();
+  let elapsed_secs = elapsed.as_secs_f64();
+
+  eprintln!("[TIMING] Cut completed in {:.2}s", elapsed_secs);
 
   Ok(TrimResult {
     output_path: output_path.to_string_lossy().to_string(),
