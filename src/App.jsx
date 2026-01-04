@@ -108,6 +108,7 @@ function isDigitKey(e) {
 
 function TimeInput({ value, onChange, disabled, ariaLabel, className }) {
   const maskedValue = ensureMaskedTime(value)
+  const pointerDownRef = useRef(false)
 
   function clampTotalSeconds(totalSeconds) {
     const max = 99 * 3600 + 59 * 60 + 59
@@ -135,17 +136,67 @@ function TimeInput({ value, onChange, disabled, ariaLabel, className }) {
     })
   }
 
-  function handleFocus(e) {
-    const input = e.currentTarget
-    setSelection(input, 0, 2)
+  function caretPosFromClick(input, clientX) {
+    const rect = input.getBoundingClientRect()
+    const style = window.getComputedStyle(input)
+    const paddingLeft = parseFloat(style.paddingLeft) || 0
+    const paddingRight = parseFloat(style.paddingRight) || 0
+    const contentWidth = rect.width - paddingLeft - paddingRight
+    const letterSpacing = Number.parseFloat(style.letterSpacing)
+    const spacing = Number.isFinite(letterSpacing) ? letterSpacing : 0
+    const text = input.value ?? ''
+
+    const canvas = document.createElement('canvas')
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return input.selectionStart ?? 0
+
+    ctx.font = `${style.fontStyle} ${style.fontVariant} ${style.fontWeight} ${style.fontSize} / ${style.lineHeight} ${style.fontFamily}`
+
+    const fullTextWidth = ctx.measureText(text).width + spacing * Math.max(0, text.length - 1)
+    let startOffset = 0
+    if (style.textAlign === 'center') {
+      startOffset = (contentWidth - fullTextWidth) / 2
+    } else if (style.textAlign === 'right' || style.textAlign === 'end') {
+      startOffset = contentWidth - fullTextWidth
+    }
+
+    const rawX = clientX - rect.left - paddingLeft - startOffset
+    const x = Math.max(0, Math.min(fullTextWidth, rawX))
+
+    let bestIndex = 0
+    let bestDist = Number.POSITIVE_INFINITY
+    for (let i = 0; i <= text.length; i += 1) {
+      const width = ctx.measureText(text.slice(0, i)).width + spacing * Math.max(0, i - 1)
+      const dist = Math.abs(x - width)
+      if (dist < bestDist) {
+        bestDist = dist
+        bestIndex = i
+      }
+    }
+
+    return bestIndex
   }
 
-  function handleClick(e) {
+  function handleFocus(e) {
+    if (pointerDownRef.current) return
     const input = e.currentTarget
-    const pos = input.selectionStart ?? 0
-    const di = digitIndexFromCaretPos(pos)
-    const range = segmentRangeFromDigitIndex(di)
+    const range = segmentRangeFromDigitIndex(5)
     setSelection(input, range.start, range.end)
+  }
+
+  function handlePointerDown() {
+    pointerDownRef.current = true
+  }
+
+  function handlePointerUp(e) {
+    pointerDownRef.current = false
+    const input = e.currentTarget
+    requestAnimationFrame(() => {
+      const pos = caretPosFromClick(input, e.clientX)
+      const di = pos === 2 ? 1 : pos === 5 ? 3 : digitIndexFromCaretPos(pos)
+      const range = segmentRangeFromDigitIndex(di)
+      setSelection(input, range.start, range.end)
+    })
   }
 
   function handleKeyDown(e) {
@@ -275,7 +326,8 @@ function TimeInput({ value, onChange, disabled, ariaLabel, className }) {
       onChange={() => {}}
       onKeyDown={handleKeyDown}
       onFocus={handleFocus}
-      onClick={handleClick}
+      onPointerDown={handlePointerDown}
+      onPointerUp={handlePointerUp}
       onPaste={handlePaste}
       disabled={disabled}
       inputMode="numeric"
@@ -478,6 +530,7 @@ function App() {
   const holdIntervalRef = useRef(null)
   const holdTimeoutRef = useRef(null)
   const ffprobeWarmRef = useRef(false)
+  const readyLoggedRef = useRef(false)
 
   const isProbing = busyAction === 'probing'
   const isCutting = busyAction === 'cutting'
@@ -798,6 +851,8 @@ function App() {
 
   useEffect(() => {
     // Ensure the log panel is never empty (and production mode shows something immediately).
+    if (readyLoggedRef.current) return
+    readyLoggedRef.current = true
     pushStatus('Ready.', 'info', 'user')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
