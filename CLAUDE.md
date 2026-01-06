@@ -1,5 +1,14 @@
 # CLAUDE.md - ClipWave Development Protocol
 
+## Role Profiles (Auto-Select) - Mandatory
+If no role is specified, pick the best fit based on the request:
+- Architect: planning, design, interfaces, risks, scope clarification.
+- Implementer: code changes, feature work, bug fixes, tests.
+- Reviewer: review diffs, find issues, give verdict.
+- QA: test strategy, edge cases, fixtures, validation.
+
+See `.sdd/README.md` for usage and templates.
+
 This document establishes token-efficient development protocols for Claude working on the ClipWave video trimming application.
 
 ## Core Principles
