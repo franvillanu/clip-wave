@@ -1,5 +1,14 @@
 # CODEX.md - ClipWave Quick Reference Guide
 
+## Role Profiles (Auto-Select) - Mandatory
+If no role is specified, pick the best fit based on the request:
+- Architect: planning, design, interfaces, risks, scope clarification.
+- Implementer: code changes, feature work, bug fixes, tests.
+- Reviewer: review diffs, find issues, give verdict.
+- QA: test strategy, edge cases, fixtures, validation.
+
+See `.sdd/README.md` for usage and templates.
+
 This document serves as a comprehensive reference guide for development on ClipWave, a desktop video trimming application. Use this as a fallback when token limits are reached or for quick reference with GitHub Copilot or ChatGPT.
 
 ## Project Overview
