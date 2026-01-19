@@ -879,11 +879,13 @@ function App() {
 
   const inParsed = useMemo(() => parseHhMmSs(inTime), [inTime])
   const outParsed = useMemo(() => parseHhMmSs(outTime), [outTime])
-  const rangeOk = inParsed.ok && outParsed.ok && outParsed.seconds > inParsed.seconds
-  const inError = inParsed.ok ? '' : inParsed.error
-  const outError = outParsed.ok ? '' : outParsed.error
+  const inExceedsDuration = inParsed.ok && durationSeconds != null && inParsed.seconds > durationSeconds
+  const outExceedsDuration = outParsed.ok && durationSeconds != null && outParsed.seconds > durationSeconds
+  const rangeOk = inParsed.ok && outParsed.ok && outParsed.seconds > inParsed.seconds && !inExceedsDuration && !outExceedsDuration
+  const inError = inParsed.ok ? (inExceedsDuration ? 'IN exceeds video duration.' : '') : inParsed.error
+  const outError = outParsed.ok ? (outExceedsDuration ? 'OUT exceeds video duration.' : '') : outParsed.error
   const rangeError =
-    inParsed.ok && outParsed.ok && outParsed.seconds <= inParsed.seconds ? 'OUT must be greater than IN.' : ''
+    inParsed.ok && outParsed.ok && !inExceedsDuration && !outExceedsDuration && outParsed.seconds <= inParsed.seconds ? 'OUT must be greater than IN.' : ''
 
   const subsBlocksCut = Boolean(isLoadingSubs) && selectedSubtitleIndex >= 0
   const canCut =
@@ -1067,8 +1069,8 @@ function App() {
 
       if (!touchedOut) {
         if (typeof duration === 'number' && Number.isFinite(duration) && duration > 0) {
-          const suggested = Math.min(10, Math.max(1, Math.floor(duration)))
-          setOutTime(secondsToTime(suggested))
+          // Set OUT to full video duration by default
+          setOutTime(secondsToTime(Math.floor(duration)))
         } else {
           setOutTime('00:00:10')
         }
@@ -1177,8 +1179,8 @@ function App() {
 
       if (!touchedOut) {
         if (typeof duration === 'number' && Number.isFinite(duration) && duration > 0) {
-          const suggested = Math.min(10, Math.max(1, Math.floor(duration)))
-          setOutTime(secondsToTime(suggested))
+          // Set OUT to full video duration by default
+          setOutTime(secondsToTime(Math.floor(duration)))
         } else {
           setOutTime('00:00:10')
         }
