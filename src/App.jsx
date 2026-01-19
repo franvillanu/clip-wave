@@ -106,7 +106,7 @@ function isDigitKey(e) {
   return e.key.length === 1 && e.key >= '0' && e.key <= '9'
 }
 
-function TimeInput({ value, onChange, disabled, ariaLabel, className, maxSeconds }) {
+function TimeInput({ value, onChange, disabled, ariaLabel, className, maxSeconds, inputRef }) {
   const maskedValue = ensureMaskedTime(value)
   const pointerDownRef = useRef(false)
 
@@ -329,6 +329,7 @@ function TimeInput({ value, onChange, disabled, ariaLabel, className, maxSeconds
 
   return (
     <input
+      ref={inputRef}
       className={['vt-input', className || ''].filter(Boolean).join(' ')}
       value={maskedValue}
       onChange={() => {}}
@@ -537,6 +538,8 @@ function App() {
   const [timeAdjustToken, setTimeAdjustToken] = useState(0)
   const holdIntervalRef = useRef(null)
   const holdTimeoutRef = useRef(null)
+  const inTimeInputRef = useRef(null)
+  const outTimeInputRef = useRef(null)
   const ffprobeWarmRef = useRef(false)
   const readyLoggedRef = useRef(false)
 
@@ -1477,13 +1480,26 @@ function App() {
     }
   }
 
-  const handleTimeIncrement = useCallback((isIn, amount) => {
+  const handleTimeIncrement = useCallback((isIn, direction) => {
+    // Determine multiplier based on cursor position in the input
+    // Format: HH:MM:SS (positions 0-1 = hours, 3-4 = minutes, 6-7 = seconds)
+    const inputRef = isIn ? inTimeInputRef : outTimeInputRef
+    const cursorPos = inputRef.current?.selectionStart ?? 8
+    let multiplier = 1 // default to seconds
+    if (cursorPos <= 2) {
+      multiplier = 3600 // hours
+    } else if (cursorPos <= 5) {
+      multiplier = 60 // minutes
+    }
+    const amount = direction * multiplier
+    const maxSec = typeof durationSeconds === 'number' && durationSeconds > 0 ? Math.floor(durationSeconds) : 359999
+
     if (isIn) {
       setTouchedIn(true)
       setInTime((prevTime) => {
         const parsed = parseHhMmSs(prevTime)
         if (!parsed.ok) return prevTime
-        const newSeconds = Math.max(0, Math.min(359999, parsed.seconds + amount))
+        const newSeconds = Math.max(0, Math.min(maxSec, parsed.seconds + amount))
         const hh = Math.floor(newSeconds / 3600)
         const mm = Math.floor((newSeconds % 3600) / 60)
         const ss = newSeconds % 60
@@ -1494,14 +1510,14 @@ function App() {
       setOutTime((prevTime) => {
         const parsed = parseHhMmSs(prevTime)
         if (!parsed.ok) return prevTime
-        const newSeconds = Math.max(0, Math.min(359999, parsed.seconds + amount))
+        const newSeconds = Math.max(0, Math.min(maxSec, parsed.seconds + amount))
         const hh = Math.floor(newSeconds / 3600)
         const mm = Math.floor((newSeconds % 3600) / 60)
         const ss = newSeconds % 60
         return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`
       })
     }
-  }, [])
+  }, [durationSeconds])
 
   const handleArrowMouseDown = useCallback((isIn, amount) => {
     return (e) => {
@@ -2026,6 +2042,7 @@ function App() {
                           ariaLabel="IN time"
                           className={inError ? 'vt-invalid' : ''}
                           maxSeconds={durationSeconds != null ? Math.floor(durationSeconds) : undefined}
+                          inputRef={inTimeInputRef}
                         />
                         <div className="vt-timeArrows">
                           <button
@@ -2035,7 +2052,7 @@ function App() {
                             onMouseUp={handleArrowMouseUp}
                             onMouseLeave={handleArrowMouseUp}
                             disabled={busy}
-                            title="Add 1 second (hold to repeat)"
+                            title="Increment focused segment (hold to repeat)"
                           >
                             ▲
                           </button>
@@ -2046,7 +2063,7 @@ function App() {
                             onMouseUp={handleArrowMouseUp}
                             onMouseLeave={handleArrowMouseUp}
                             disabled={busy}
-                            title="Subtract 1 second (hold to repeat)"
+                            title="Decrement focused segment (hold to repeat)"
                           >
                             ▼
                           </button>
@@ -2066,6 +2083,7 @@ function App() {
                           ariaLabel="OUT time"
                           className={outError || rangeError ? 'vt-invalid' : ''}
                           maxSeconds={durationSeconds != null ? Math.floor(durationSeconds) : undefined}
+                          inputRef={outTimeInputRef}
                         />
                         <div className="vt-timeArrows">
                           <button
@@ -2075,7 +2093,7 @@ function App() {
                             onMouseUp={handleArrowMouseUp}
                             onMouseLeave={handleArrowMouseUp}
                             disabled={busy}
-                            title="Add 1 second (hold to repeat)"
+                            title="Increment focused segment (hold to repeat)"
                           >
                             ▲
                           </button>
@@ -2086,7 +2104,7 @@ function App() {
                             onMouseUp={handleArrowMouseUp}
                             onMouseLeave={handleArrowMouseUp}
                             disabled={busy}
-                            title="Subtract 1 second (hold to repeat)"
+                            title="Decrement focused segment (hold to repeat)"
                           >
                             ▼
                           </button>
