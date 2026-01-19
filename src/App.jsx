@@ -500,7 +500,7 @@ function App() {
   const [wingetMessage, setWingetMessage] = useState('')
   const [isCheckingWinget, setIsCheckingWinget] = useState(false)
   const [inTime, setInTime] = useState('00:00:00')
-  const [outTime, setOutTime] = useState('00:00:10')
+  const [outTime, setOutTime] = useState('00:00:00')
   const [mode, setMode] = useState('lossless')
   const [statusLog, setStatusLog] = useState([])
   const [outputPath, setOutputPath] = useState('')
