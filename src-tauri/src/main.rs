@@ -1601,15 +1601,20 @@ fn build_output_path(input_path: &str, mode: &str, in_time: &str, out_time: &str
     .file_stem()
     .ok_or_else(|| "Could not determine input filename".to_string())?
     .to_string_lossy();
+  let extension = input
+    .extension()
+    .map(|e| e.to_string_lossy().to_string())
+    .unwrap_or_else(|| "mp4".to_string());
 
   let suffix_in = time_for_filename(in_time);
   let suffix_out = time_for_filename(out_time);
   let filename = format!(
-    "{}_clip_{}_{}_{}.mkv",
+    "{}_clip_{}_{}_{}.{}",
     stem,
     mode,
     suffix_in,
-    suffix_out
+    suffix_out,
+    extension
   );
   Ok(parent.join(filename))
 }
@@ -2312,7 +2317,23 @@ fn trim_media(
   }
 
   if mode == "lossless" {
-    cmd.args(["-c", "copy", "-copyts", "-avoid_negative_ts", "make_zero"]);
+    // Determine output container from extension
+    let output_ext = output_path
+      .extension()
+      .map(|e| e.to_string_lossy().to_lowercase())
+      .unwrap_or_default();
+
+    cmd.args(["-c", "copy"]);
+
+    // MP4 container needs different timestamp handling than MKV
+    if output_ext == "mp4" || output_ext == "m4v" || output_ext == "mov" {
+      // For MP4: avoid_negative_ts with make_zero and fflags to fix timestamps
+      cmd.args(["-avoid_negative_ts", "make_zero", "-fflags", "+genpts"]);
+    } else {
+      // For MKV and other containers: copyts works better
+      cmd.args(["-copyts", "-avoid_negative_ts", "make_zero"]);
+    }
+
     if rotation_degrees != 0 {
       cmd.args(["-metadata:s:v:0", &format!("rotate={rotation_degrees}")]);
     }
@@ -2364,6 +2385,19 @@ fn trim_media(
     } else {
       format!("ffmpeg failed: {stderr}")
     });
+  }
+
+  // Validate output file size - a file under 10KB is likely corrupt/empty
+  let output_size = std::fs::metadata(&output_path)
+    .map(|m| m.len())
+    .unwrap_or(0);
+  if output_size < 10_000 {
+    // Clean up the corrupt file
+    let _ = std::fs::remove_file(&output_path);
+    return Err(format!(
+      "Lossless cut produced invalid output ({} bytes). This usually happens when the cut point is not near a keyframe. Try using 'Exact' mode instead, or adjust the cut times to be closer to a keyframe.",
+      output_size
+    ));
   }
 
   Ok(TrimResult {
