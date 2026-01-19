@@ -106,13 +106,14 @@ function isDigitKey(e) {
   return e.key.length === 1 && e.key >= '0' && e.key <= '9'
 }
 
-function TimeInput({ value, onChange, disabled, ariaLabel, className }) {
+function TimeInput({ value, onChange, disabled, ariaLabel, className, maxSeconds }) {
   const maskedValue = ensureMaskedTime(value)
   const pointerDownRef = useRef(false)
 
   function clampTotalSeconds(totalSeconds) {
-    const max = 99 * 3600 + 59 * 60 + 59
-    return Math.min(max, Math.max(0, totalSeconds))
+    const absoluteMax = 99 * 3600 + 59 * 60 + 59
+    const effectiveMax = typeof maxSeconds === 'number' && maxSeconds > 0 ? Math.min(maxSeconds, absoluteMax) : absoluteMax
+    return Math.min(effectiveMax, Math.max(0, totalSeconds))
   }
 
   function parseMaskedToSeconds(masked) {
@@ -879,13 +880,11 @@ function App() {
 
   const inParsed = useMemo(() => parseHhMmSs(inTime), [inTime])
   const outParsed = useMemo(() => parseHhMmSs(outTime), [outTime])
-  const inExceedsDuration = inParsed.ok && durationSeconds != null && inParsed.seconds > durationSeconds
-  const outExceedsDuration = outParsed.ok && durationSeconds != null && outParsed.seconds > durationSeconds
-  const rangeOk = inParsed.ok && outParsed.ok && outParsed.seconds > inParsed.seconds && !inExceedsDuration && !outExceedsDuration
-  const inError = inParsed.ok ? (inExceedsDuration ? 'IN exceeds video duration.' : '') : inParsed.error
-  const outError = outParsed.ok ? (outExceedsDuration ? 'OUT exceeds video duration.' : '') : outParsed.error
+  const rangeOk = inParsed.ok && outParsed.ok && outParsed.seconds > inParsed.seconds
+  const inError = inParsed.ok ? '' : inParsed.error
+  const outError = outParsed.ok ? '' : outParsed.error
   const rangeError =
-    inParsed.ok && outParsed.ok && !inExceedsDuration && !outExceedsDuration && outParsed.seconds <= inParsed.seconds ? 'OUT must be greater than IN.' : ''
+    inParsed.ok && outParsed.ok && outParsed.seconds <= inParsed.seconds ? 'OUT must be greater than IN.' : ''
 
   const subsBlocksCut = Boolean(isLoadingSubs) && selectedSubtitleIndex >= 0
   const canCut =
@@ -2019,6 +2018,7 @@ function App() {
                           disabled={busy}
                           ariaLabel="IN time"
                           className={inError ? 'vt-invalid' : ''}
+                          maxSeconds={durationSeconds != null ? Math.floor(durationSeconds) : undefined}
                         />
                         <div className="vt-timeArrows">
                           <button
@@ -2058,6 +2058,7 @@ function App() {
                           disabled={busy}
                           ariaLabel="OUT time"
                           className={outError || rangeError ? 'vt-invalid' : ''}
+                          maxSeconds={durationSeconds != null ? Math.floor(durationSeconds) : undefined}
                         />
                         <div className="vt-timeArrows">
                           <button
@@ -2091,10 +2092,14 @@ function App() {
                           setTouchedIn(true)
                           setTouchedOut(true)
                           setInTime('00:00:00')
-                          setOutTime('00:00:10')
+                          // Reset OUT to full video duration if known, otherwise 10 seconds
+                          const outDefault = typeof durationSeconds === 'number' && durationSeconds > 0
+                            ? secondsToTime(Math.floor(durationSeconds))
+                            : '00:00:10'
+                          setOutTime(outDefault)
                         }}
                         disabled={busy}
-                        title="Reset to default range (00:00:00 - 00:00:10)"
+                        title="Reset to full video range"
                       >
                         Reset
                       </button>
