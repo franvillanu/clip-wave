@@ -129,6 +129,13 @@ function TimeInput({ value, onChange, disabled, ariaLabel, className, maxSeconds
     return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`
   }
 
+  // Wrapper that clamps the value before emitting
+  function emitClamped(maskedTime) {
+    const seconds = parseMaskedToSeconds(maskedTime)
+    const clamped = secondsToMasked(seconds)
+    onChange(clamped)
+  }
+
   function setSelection(input, start, end) {
     requestAnimationFrame(() => {
       try {
@@ -229,7 +236,7 @@ function TimeInput({ value, onChange, disabled, ariaLabel, className, maxSeconds
       const nextSeconds =
         seg === 'h' ? currentSeconds + delta * 3600 : seg === 'm' ? currentSeconds + delta * 60 : currentSeconds + delta
       const updated = secondsToMasked(nextSeconds)
-      onChange(updated)
+      emitClamped(updated)
       setSelection(input, range.start, range.end)
       return
     }
@@ -239,7 +246,7 @@ function TimeInput({ value, onChange, disabled, ariaLabel, className, maxSeconds
       const targetDigitIndex =
         e.key === 'Backspace' ? Math.max(0, digitIndex - (hasSelection ? 0 : 1)) : digitIndex
       const updated = setDigitAtMaskedTime(maskedValue, targetDigitIndex, '0')
-      onChange(updated)
+      emitClamped(updated)
       const nextRange = segmentRangeFromDigitIndex(targetDigitIndex)
       setSelection(input, nextRange.start, nextRange.end)
       return
@@ -256,7 +263,7 @@ function TimeInput({ value, onChange, disabled, ariaLabel, className, maxSeconds
         if (fullSegmentSelected) {
           const target = digitIndexFromCaretPos(range.start)
           const updated = setDigitAtMaskedTime(maskedValue, target, digit)
-          onChange(updated)
+          emitClamped(updated)
           setSelection(input, range.start + 1, range.start + 2)
           return
         }
@@ -264,7 +271,7 @@ function TimeInput({ value, onChange, disabled, ariaLabel, className, maxSeconds
         if (secondDigitSelected) {
           const target = digitIndexFromCaretPos(range.start + 1)
           const updated = setDigitAtMaskedTime(maskedValue, target, digit)
-          onChange(updated)
+          emitClamped(updated)
           const nextDigitIndex = Math.min(5, target + 1)
           const nextRange = segmentRangeFromDigitIndex(nextDigitIndex)
           setSelection(input, nextRange.start, nextRange.end)
@@ -273,7 +280,7 @@ function TimeInput({ value, onChange, disabled, ariaLabel, className, maxSeconds
 
         const target = digitIndexFromCaretPos(caretPos)
         const updated = setDigitAtMaskedTime(maskedValue, target, digit)
-        onChange(updated)
+        emitClamped(updated)
         const nextDigitIndex = Math.min(5, target + 1)
         const nextRange = segmentRangeFromDigitIndex(nextDigitIndex)
         setSelection(input, nextRange.start, nextRange.end)
@@ -281,7 +288,7 @@ function TimeInput({ value, onChange, disabled, ariaLabel, className, maxSeconds
       }
 
       const updated = setDigitAtMaskedTime(maskedValue, digitIndex, digit)
-      onChange(updated)
+      emitClamped(updated)
       const nextDigitIndex = Math.min(5, digitIndex + 1)
       const nextRange = segmentRangeFromDigitIndex(nextDigitIndex)
       setSelection(input, nextRange.start, nextRange.end)
@@ -315,7 +322,7 @@ function TimeInput({ value, onChange, disabled, ariaLabel, className, maxSeconds
       updated = setDigitAtMaskedTime(updated, di, d)
       di = Math.min(5, di + 1)
     }
-    onChange(updated)
+    emitClamped(updated)
     const nextRange = segmentRangeFromDigitIndex(di)
     setSelection(input, nextRange.start, nextRange.end)
   }
