@@ -894,7 +894,7 @@ function App() {
   const inError = inParsed.ok ? '' : inParsed.error
   const outError = outParsed.ok ? '' : outParsed.error
   const rangeError =
-    inParsed.ok && outParsed.ok && outParsed.seconds <= inParsed.seconds ? 'OUT must be greater than IN.' : ''
+    inputPath && inParsed.ok && outParsed.ok && outParsed.seconds <= inParsed.seconds ? 'OUT must be greater than IN.' : ''
 
   const subsBlocksCut = Boolean(isLoadingSubs) && selectedSubtitleIndex >= 0
   const canCut =
