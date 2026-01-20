@@ -106,13 +106,14 @@ function isDigitKey(e) {
   return e.key.length === 1 && e.key >= '0' && e.key <= '9'
 }
 
-function TimeInput({ value, onChange, disabled, ariaLabel, className }) {
+function TimeInput({ value, onChange, disabled, ariaLabel, className, maxSeconds, inputRef }) {
   const maskedValue = ensureMaskedTime(value)
   const pointerDownRef = useRef(false)
 
   function clampTotalSeconds(totalSeconds) {
-    const max = 99 * 3600 + 59 * 60 + 59
-    return Math.min(max, Math.max(0, totalSeconds))
+    const absoluteMax = 99 * 3600 + 59 * 60 + 59
+    const effectiveMax = typeof maxSeconds === 'number' && maxSeconds > 0 ? Math.min(maxSeconds, absoluteMax) : absoluteMax
+    return Math.min(effectiveMax, Math.max(0, totalSeconds))
   }
 
   function parseMaskedToSeconds(masked) {
@@ -126,6 +127,13 @@ function TimeInput({ value, onChange, disabled, ariaLabel, className }) {
     const mm = Math.floor((clamped % 3600) / 60)
     const ss = clamped % 60
     return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`
+  }
+
+  // Wrapper that clamps the value before emitting
+  function emitClamped(maskedTime) {
+    const seconds = parseMaskedToSeconds(maskedTime)
+    const clamped = secondsToMasked(seconds)
+    onChange(clamped)
   }
 
   function setSelection(input, start, end) {
@@ -228,7 +236,7 @@ function TimeInput({ value, onChange, disabled, ariaLabel, className }) {
       const nextSeconds =
         seg === 'h' ? currentSeconds + delta * 3600 : seg === 'm' ? currentSeconds + delta * 60 : currentSeconds + delta
       const updated = secondsToMasked(nextSeconds)
-      onChange(updated)
+      emitClamped(updated)
       setSelection(input, range.start, range.end)
       return
     }
@@ -238,7 +246,7 @@ function TimeInput({ value, onChange, disabled, ariaLabel, className }) {
       const targetDigitIndex =
         e.key === 'Backspace' ? Math.max(0, digitIndex - (hasSelection ? 0 : 1)) : digitIndex
       const updated = setDigitAtMaskedTime(maskedValue, targetDigitIndex, '0')
-      onChange(updated)
+      emitClamped(updated)
       const nextRange = segmentRangeFromDigitIndex(targetDigitIndex)
       setSelection(input, nextRange.start, nextRange.end)
       return
@@ -255,7 +263,7 @@ function TimeInput({ value, onChange, disabled, ariaLabel, className }) {
         if (fullSegmentSelected) {
           const target = digitIndexFromCaretPos(range.start)
           const updated = setDigitAtMaskedTime(maskedValue, target, digit)
-          onChange(updated)
+          emitClamped(updated)
           setSelection(input, range.start + 1, range.start + 2)
           return
         }
@@ -263,7 +271,7 @@ function TimeInput({ value, onChange, disabled, ariaLabel, className }) {
         if (secondDigitSelected) {
           const target = digitIndexFromCaretPos(range.start + 1)
           const updated = setDigitAtMaskedTime(maskedValue, target, digit)
-          onChange(updated)
+          emitClamped(updated)
           const nextDigitIndex = Math.min(5, target + 1)
           const nextRange = segmentRangeFromDigitIndex(nextDigitIndex)
           setSelection(input, nextRange.start, nextRange.end)
@@ -272,7 +280,7 @@ function TimeInput({ value, onChange, disabled, ariaLabel, className }) {
 
         const target = digitIndexFromCaretPos(caretPos)
         const updated = setDigitAtMaskedTime(maskedValue, target, digit)
-        onChange(updated)
+        emitClamped(updated)
         const nextDigitIndex = Math.min(5, target + 1)
         const nextRange = segmentRangeFromDigitIndex(nextDigitIndex)
         setSelection(input, nextRange.start, nextRange.end)
@@ -280,7 +288,7 @@ function TimeInput({ value, onChange, disabled, ariaLabel, className }) {
       }
 
       const updated = setDigitAtMaskedTime(maskedValue, digitIndex, digit)
-      onChange(updated)
+      emitClamped(updated)
       const nextDigitIndex = Math.min(5, digitIndex + 1)
       const nextRange = segmentRangeFromDigitIndex(nextDigitIndex)
       setSelection(input, nextRange.start, nextRange.end)
@@ -314,13 +322,14 @@ function TimeInput({ value, onChange, disabled, ariaLabel, className }) {
       updated = setDigitAtMaskedTime(updated, di, d)
       di = Math.min(5, di + 1)
     }
-    onChange(updated)
+    emitClamped(updated)
     const nextRange = segmentRangeFromDigitIndex(di)
     setSelection(input, nextRange.start, nextRange.end)
   }
 
   return (
     <input
+      ref={inputRef}
       className={['vt-input', className || ''].filter(Boolean).join(' ')}
       value={maskedValue}
       onChange={() => {}}
@@ -491,7 +500,7 @@ function App() {
   const [wingetMessage, setWingetMessage] = useState('')
   const [isCheckingWinget, setIsCheckingWinget] = useState(false)
   const [inTime, setInTime] = useState('00:00:00')
-  const [outTime, setOutTime] = useState('00:00:10')
+  const [outTime, setOutTime] = useState('00:00:00')
   const [mode, setMode] = useState('lossless')
   const [statusLog, setStatusLog] = useState([])
   const [outputPath, setOutputPath] = useState('')
@@ -529,6 +538,8 @@ function App() {
   const [timeAdjustToken, setTimeAdjustToken] = useState(0)
   const holdIntervalRef = useRef(null)
   const holdTimeoutRef = useRef(null)
+  const inTimeInputRef = useRef(null)
+  const outTimeInputRef = useRef(null)
   const ffprobeWarmRef = useRef(false)
   const readyLoggedRef = useRef(false)
 
@@ -883,7 +894,7 @@ function App() {
   const inError = inParsed.ok ? '' : inParsed.error
   const outError = outParsed.ok ? '' : outParsed.error
   const rangeError =
-    inParsed.ok && outParsed.ok && outParsed.seconds <= inParsed.seconds ? 'OUT must be greater than IN.' : ''
+    inputPath && inParsed.ok && outParsed.ok && outParsed.seconds <= inParsed.seconds ? 'OUT must be greater than IN.' : ''
 
   const subsBlocksCut = Boolean(isLoadingSubs) && selectedSubtitleIndex >= 0
   const canCut =
@@ -1067,8 +1078,8 @@ function App() {
 
       if (!touchedOut) {
         if (typeof duration === 'number' && Number.isFinite(duration) && duration > 0) {
-          const suggested = Math.min(10, Math.max(1, Math.floor(duration)))
-          setOutTime(secondsToTime(suggested))
+          // Set OUT to full video duration by default
+          setOutTime(secondsToTime(Math.floor(duration)))
         } else {
           setOutTime('00:00:10')
         }
@@ -1177,8 +1188,8 @@ function App() {
 
       if (!touchedOut) {
         if (typeof duration === 'number' && Number.isFinite(duration) && duration > 0) {
-          const suggested = Math.min(10, Math.max(1, Math.floor(duration)))
-          setOutTime(secondsToTime(suggested))
+          // Set OUT to full video duration by default
+          setOutTime(secondsToTime(Math.floor(duration)))
         } else {
           setOutTime('00:00:10')
         }
@@ -1469,13 +1480,26 @@ function App() {
     }
   }
 
-  const handleTimeIncrement = useCallback((isIn, amount) => {
+  const handleTimeIncrement = useCallback((isIn, direction) => {
+    // Determine multiplier based on cursor position in the input
+    // Format: HH:MM:SS (positions 0-1 = hours, 3-4 = minutes, 6-7 = seconds)
+    const inputRef = isIn ? inTimeInputRef : outTimeInputRef
+    const cursorPos = inputRef.current?.selectionStart ?? 8
+    let multiplier = 1 // default to seconds
+    if (cursorPos <= 2) {
+      multiplier = 3600 // hours
+    } else if (cursorPos <= 5) {
+      multiplier = 60 // minutes
+    }
+    const amount = direction * multiplier
+    const maxSec = typeof durationSeconds === 'number' && durationSeconds > 0 ? Math.floor(durationSeconds) : 359999
+
     if (isIn) {
       setTouchedIn(true)
       setInTime((prevTime) => {
         const parsed = parseHhMmSs(prevTime)
         if (!parsed.ok) return prevTime
-        const newSeconds = Math.max(0, Math.min(359999, parsed.seconds + amount))
+        const newSeconds = Math.max(0, Math.min(maxSec, parsed.seconds + amount))
         const hh = Math.floor(newSeconds / 3600)
         const mm = Math.floor((newSeconds % 3600) / 60)
         const ss = newSeconds % 60
@@ -1486,14 +1510,14 @@ function App() {
       setOutTime((prevTime) => {
         const parsed = parseHhMmSs(prevTime)
         if (!parsed.ok) return prevTime
-        const newSeconds = Math.max(0, Math.min(359999, parsed.seconds + amount))
+        const newSeconds = Math.max(0, Math.min(maxSec, parsed.seconds + amount))
         const hh = Math.floor(newSeconds / 3600)
         const mm = Math.floor((newSeconds % 3600) / 60)
         const ss = newSeconds % 60
         return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`
       })
     }
-  }, [])
+  }, [durationSeconds])
 
   const handleArrowMouseDown = useCallback((isIn, amount) => {
     return (e) => {
@@ -2017,6 +2041,8 @@ function App() {
                           disabled={busy}
                           ariaLabel="IN time"
                           className={inError ? 'vt-invalid' : ''}
+                          maxSeconds={durationSeconds != null ? Math.floor(durationSeconds) : undefined}
+                          inputRef={inTimeInputRef}
                         />
                         <div className="vt-timeArrows">
                           <button
@@ -2026,7 +2052,7 @@ function App() {
                             onMouseUp={handleArrowMouseUp}
                             onMouseLeave={handleArrowMouseUp}
                             disabled={busy}
-                            title="Add 1 second (hold to repeat)"
+                            title="Increment focused segment (hold to repeat)"
                           >
                             ▲
                           </button>
@@ -2037,7 +2063,7 @@ function App() {
                             onMouseUp={handleArrowMouseUp}
                             onMouseLeave={handleArrowMouseUp}
                             disabled={busy}
-                            title="Subtract 1 second (hold to repeat)"
+                            title="Decrement focused segment (hold to repeat)"
                           >
                             ▼
                           </button>
@@ -2056,6 +2082,8 @@ function App() {
                           disabled={busy}
                           ariaLabel="OUT time"
                           className={outError || rangeError ? 'vt-invalid' : ''}
+                          maxSeconds={durationSeconds != null ? Math.floor(durationSeconds) : undefined}
+                          inputRef={outTimeInputRef}
                         />
                         <div className="vt-timeArrows">
                           <button
@@ -2065,7 +2093,7 @@ function App() {
                             onMouseUp={handleArrowMouseUp}
                             onMouseLeave={handleArrowMouseUp}
                             disabled={busy}
-                            title="Add 1 second (hold to repeat)"
+                            title="Increment focused segment (hold to repeat)"
                           >
                             ▲
                           </button>
@@ -2076,7 +2104,7 @@ function App() {
                             onMouseUp={handleArrowMouseUp}
                             onMouseLeave={handleArrowMouseUp}
                             disabled={busy}
-                            title="Subtract 1 second (hold to repeat)"
+                            title="Decrement focused segment (hold to repeat)"
                           >
                             ▼
                           </button>
@@ -2089,10 +2117,14 @@ function App() {
                           setTouchedIn(true)
                           setTouchedOut(true)
                           setInTime('00:00:00')
-                          setOutTime('00:00:10')
+                          // Reset OUT to full video duration if known, otherwise 10 seconds
+                          const outDefault = typeof durationSeconds === 'number' && durationSeconds > 0
+                            ? secondsToTime(Math.floor(durationSeconds))
+                            : '00:00:10'
+                          setOutTime(outDefault)
                         }}
                         disabled={busy}
-                        title="Reset to default range (00:00:00 - 00:00:10)"
+                        title="Reset to full video range"
                       >
                         Reset
                       </button>
