@@ -18,11 +18,16 @@ $title = git log -1 --pretty=%s
 $body  = git log -1 --pretty=%b
 if ([string]::IsNullOrWhiteSpace($body)) { $body = "Auto PR from $branch" }
 Write-Host "Creating PR..."
-gh pr create --title $title --body $body
+$prUrl = gh pr create --title $title --body $body
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-Write-Host "Merging PR (squash)..."
-gh pr merge --squash
+# Small delay for GitHub API to process PR (free tier)
+Write-Host "Waiting for PR to be ready..."
+Start-Sleep -Seconds 2
+
+Write-Host "Merging PR (squash with admin bypass for free tier)..."
+# --admin bypasses merge queue (if any) and allows immediate merge on free tier
+gh pr merge --squash --admin
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 Write-Host "Checkout main and pull..."

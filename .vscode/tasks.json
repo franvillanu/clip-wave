@@ -34,7 +34,7 @@
     {
       "label": "PR: create + merge (squash) + update main + delete branch + build app",
       "type": "shell",
-      "command": "./scripts/pr-merge-and-build.ps1",
+      "command": "${workspaceFolder}/scripts/pr-merge-and-build.ps1",
       "options": {
         "cwd": "${workspaceFolder}",
         "shell": {
