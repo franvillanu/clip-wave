@@ -43,20 +43,6 @@
         "panel": "shared"
       },
       "problemMatcher": []
-    },
-    {
-      "label": "PR before build",
-      "dependsOn": ["PR: create + merge (squash) + update main + delete branch + build app"],
-      "type": "shell",
-      "command": "echo Build completed by script.",
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "presentation": {
-        "reveal": "always",
-        "panel": "shared"
-      },
-      "problemMatcher": []
     }
   ]
 }
