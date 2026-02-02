@@ -34,8 +34,24 @@ git push
 - **All** modified files: src/*, index.html, package.json, src-tauri/*, etc.
 - Run `npm run build` first if you changed source files that affect the bundle
 
+## Full release (PR + merge + build)
+
+If the user asked for a PR, merge, release, or **final build** (ClipWave app): after commit and push, **run the full flow** — do not stop at push.
+
+1. Commit and push (as above).
+2. Run the task **"PR: create + merge (squash) + update main + delete branch + build app"** (or **"PR before build"**). This will:
+   - Create the PR (title/body from last commit),
+   - Merge the PR with squash,
+   - Checkout main and pull,
+   - Delete the feature branch (local + remote),
+   - Run the ClipWave Tauri app build (`npm run build:app`).
+
+Invoke via: Run Task → "PR: create + merge (squash) + update main + delete branch + build app", or run `./scripts/pr-merge-and-build.ps1` from repo root (PowerShell).
+
+**Violation = user asked for PR/merge/release/final build and you only committed and pushed without running the full flow.**
+
 ## Rule
 
 **Violation = telling the user work is done while `git status` shows uncommitted changes. Never skip. No exceptions.**
 
-If you made edits, your final action before the completion message MUST be a successful `git push`.
+If you made edits, your final action before the completion message MUST be a successful `git push`. If they asked for release/final build, it MUST include running the PR+merge+delete+build flow.
