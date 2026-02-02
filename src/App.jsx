@@ -1,9 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
+import { getCurrentWebview } from '@tauri-apps/api/webview'
 import { open } from '@tauri-apps/plugin-dialog'
 import { openUrl } from '@tauri-apps/plugin-opener'
 import clipwaveLogo from './assets/clipwave-logo.png'
+
+const VIDEO_EXTENSIONS = /\.(mkv|mp4|mov|avi|webm|m4v)$/i
+function isVideoPath(path) {
+  return typeof path === 'string' && VIDEO_EXTENSIONS.test(path)
+}
 
 function parseHhMmSs(value) {
   // Accept both hh:mm:ss and hh:mm:ss.milliseconds formats
@@ -526,6 +532,7 @@ function App() {
     nextKeyframeSeconds: null,
   })
   const [losslessTipExpanded, setLosslessTipExpanded] = useState(false)
+  const [isDragOver, setIsDragOver] = useState(false)
 
   const statusSeqRef = useRef(0)
   const openSeqRef = useRef(0)
@@ -642,6 +649,47 @@ function App() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  useEffect(() => {
+    let unlistenDrop = null
+    ;(async () => {
+      try {
+        const webview = getCurrentWebview()
+        unlistenDrop = await webview.onDragDropEvent((event) => {
+          const payload = event?.payload
+          if (!payload) return
+          if (payload.type === 'enter' || payload.type === 'over') {
+            setIsDragOver(true)
+            return
+          }
+          if (payload.type === 'leave') {
+            setIsDragOver(false)
+            return
+          }
+          if (payload.type === 'drop') {
+            setIsDragOver(false)
+            const paths = Array.isArray(payload.paths) ? payload.paths : []
+            const videoPath = paths.find(isVideoPath)
+            if (videoPath && !isProbing && !isCutting && !isDownloadingFfmpeg) {
+              logUser('Loading dropped video…', 'info')
+              loadVideoFromPath(videoPath)
+            }
+            // Non-video drops are ignored (no log)
+          }
+        })
+      } catch {
+        // not in Tauri or drag-drop unavailable
+      }
+    })()
+    return () => {
+      try {
+        if (typeof unlistenDrop === 'function') unlistenDrop()
+      } catch {
+        // ignore
+      }
+    }
+  }, [isProbing, isCutting, isDownloadingFfmpeg])
+  // loadVideoFromPath, logUser are stable enough; omit to avoid re-registering
 
   function handleClearLogs() {
     setStatusLog([])
@@ -1004,34 +1052,39 @@ function App() {
 
   async function handleOpenVideo() {
     try {
-      setBusyAction('probing')
-      logUser('Opening file dialog…', 'info')
       if (isDownloadingFfmpeg) {
         logUser('Please wait for FFmpeg installation to finish.', 'info')
         return
       }
+      logUser('Opening file dialog…', 'info')
       const selected = await open({
         multiple: false,
         directory: false,
         filters: [
-          {
-            name: 'Video',
-            extensions: ['mkv', 'mp4', 'mov', 'avi', 'webm', 'm4v'],
-          },
+          { name: 'Video', extensions: ['mkv', 'mp4', 'mov', 'avi', 'webm', 'm4v'] },
         ],
       })
-
-      if (!selected) {
-        logUser('Open canceled.', 'info')
-        return
-      }
-
-      const path = Array.isArray(selected) ? selected[0] : selected
+      const path = selected == null ? null : (Array.isArray(selected) ? selected[0] : selected)
       if (!path) {
         logUser('Open canceled.', 'info')
         return
       }
+      await loadVideoFromPath(path)
+    } catch (e) {
+      const message = typeof e === 'string' ? e : e?.message ? String(e.message) : String(e)
+      if (message.toLowerCase().includes('ffprobe') && message.toLowerCase().includes('not found')) {
+        setFfmpegOk(false)
+        setFfmpegCheckMessage(message)
+      }
+      logUser('Error opening file.', 'error')
+      logDebug(`Error: ${message}`, 'error')
+      setBusyAction('idle')
+    }
+  }
 
+  async function loadVideoFromPath(path) {
+    try {
+      setBusyAction('probing')
       const openSeq = ++openSeqRef.current
       subsRequestIdRef.current += 1
       setInputPath(path)
@@ -1128,11 +1181,17 @@ function App() {
           setIsLoadingTracks(false)
         }
       })()
+    } catch (e) {
+      const message = typeof e === 'string' ? e : e?.message ? String(e.message) : String(e)
+      logUser('Error loading video.', 'error')
+      logDebug(`Error: ${message}`, 'error')
+    } finally {
+      setBusyAction('idle')
+    }
+  }
 
-      return
-
-      /*
-      // Display performance timing
+  /*
+  // Display performance timing (legacy comment block)
       if (result.timing_ms) {
         const t = result.timing_ms
         const firstOut = typeof t.ffprobe_first_stdout_byte_ms === 'number' ? t.ffprobe_first_stdout_byte_ms : null
@@ -1207,18 +1266,6 @@ function App() {
 
       pushStatus(`Loaded ${streams.length} audio track(s).`, 'success')
       */
-    } catch (e) {
-      const message = typeof e === 'string' ? e : e?.message ? String(e.message) : String(e)
-      if (message.toLowerCase().includes('ffprobe') && message.toLowerCase().includes('not found')) {
-        setFfmpegOk(false)
-        setFfmpegCheckMessage(message)
-      }
-      logUser('Error opening file.', 'error')
-      logDebug(`Error: ${message}`, 'error')
-    } finally {
-      setBusyAction('idle')
-    }
-  }
 
   async function handleCut() {
     if (!inputPath) {
@@ -1562,7 +1609,7 @@ function App() {
     : '-'
 
   return (
-    <div className="vt-root">
+    <div className={`vt-root${isDragOver ? ' vt-dragover' : ''}`}>
 
       <div className="vt-shell">
         {losslessModal.open ? (

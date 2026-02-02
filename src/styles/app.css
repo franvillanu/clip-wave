@@ -38,6 +38,34 @@ body,
   min-height: 0;
 }
 
+/* App-wide drag-over state (drop video anywhere) */
+.vt-root.vt-dragover {
+  outline: 3px dashed var(--accent-primary);
+  outline-offset: -4px;
+}
+/* Full-app transparent fill when dragging over */
+.vt-root.vt-dragover::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: rgba(99, 102, 241, 0.2);
+  pointer-events: none;
+  z-index: 99;
+}
+.vt-root.vt-dragover::after {
+  content: 'Drop video to load';
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--accent-primary);
+  pointer-events: none;
+  z-index: 100;
+}
+
 /* === CARD PRINCIPAL === */
 .vt-card {
   width: 100%;

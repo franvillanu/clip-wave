@@ -1,0 +1,41 @@
+---
+description: HARD GATE - Commit and push ALL changes before marking work complete. Never leave uncommitted files.
+alwaysApply: true
+---
+
+# Git Commit & Push Gate — MANDATORY (No Exceptions)
+
+**You MUST commit and push ALL modified files before you tell the user the work is done.**
+
+## Trigger
+
+Before responding "Done", "Complete", "Fixed", "Here are the changes", or any similar completion message:
+
+1. Run `git status`
+2. If there are ANY modified or untracked files → commit and push them
+3. Do NOT tell the user work is complete while files remain uncommitted
+
+## Required Steps
+
+```
+git status
+```
+
+If output shows modified/untracked files:
+
+```
+git add -A
+git commit -m "descriptive message"
+git push
+```
+
+## Scope
+
+- **All** modified files: src/*, index.html, package.json, src-tauri/*, etc.
+- Run `npm run build` first if you changed source files that affect the bundle
+
+## Rule
+
+**Violation = telling the user work is done while `git status` shows uncommitted changes. Never skip. No exceptions.**
+
+If you made edits, your final action before the completion message MUST be a successful `git push`.
