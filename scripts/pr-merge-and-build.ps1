@@ -18,7 +18,7 @@ $title = git log -1 --pretty=%s
 $body  = git log -1 --pretty=%b
 if ([string]::IsNullOrWhiteSpace($body)) { $body = "Auto PR from $branch" }
 Write-Host "Creating PR..."
-$prUrl = gh pr create --title $title --body $body
+$prUrl = gh pr create --title "$title" --body "$body"
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 # Small delay for GitHub API to process PR (free tier)
