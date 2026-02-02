@@ -175,6 +175,7 @@ struct SubtitlesProbeResult {
   debug: Option<SpawnDebugInfo>,
 }
 
+#[allow(dead_code)]
 fn parse_hh_mm_ss(input: &str) -> Result<u64, String> {
   // Parse with milliseconds support and round down to whole seconds
   let seconds_f64 = parse_hh_mm_ss_with_millis(input)?;
@@ -2255,8 +2256,8 @@ fn trim_media(
   }
 
   // For file existence check and old code compatibility, also get whole seconds
-  let in_seconds = in_seconds_f64.floor() as u64;
-  let out_seconds = out_seconds_f64.floor() as u64;
+  let _in_seconds = in_seconds_f64.floor() as u64;
+  let _out_seconds = out_seconds_f64.floor() as u64;
 
   let mode = mode.trim().to_lowercase();
   if mode != "lossless" && mode != "exact" {

@@ -1,0 +1,41 @@
+---
+description: HARD GATE - Branch/commit/push protocol. Enforced before ANY code change.
+alwaysApply: true
+---
+
+# Git Branch Gate — MANDATORY (No Exceptions)
+
+**You MUST run this BEFORE any `edit`, `write`, or code-modifying `run_terminal_cmd`.**
+
+## Step 1: Check Branch (FIRST action)
+
+```
+git branch --show-current
+```
+
+## Step 2: If output is `main` → Create branch NOW
+
+```
+git checkout -b fix/short-description
+```
+(or `feature/...`, `refactor/...`)
+
+## Step 3: Push branch (before editing)
+
+```
+git push -u origin fix/short-description
+```
+
+## Step 4: After all edits → Commit & push
+
+```
+git add <files>
+git commit -m "..."
+git push
+```
+
+---
+
+**Rule:** If you are about to call `edit`, `write`, or run a command that changes files, and you have NOT run `git branch --show-current` yet this session → STOP. Run it first. If on main, create and push branch. Then proceed.
+
+**Violation = uncommitted changes on main, no branch, no push. Never skip.**
