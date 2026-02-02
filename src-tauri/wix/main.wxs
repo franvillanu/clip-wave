@@ -40,7 +40,7 @@
 
         <Media Id="1" Cabinet="app.cab" EmbedCab="yes" />
 
-        <Icon Id="ProductIcon" SourceFile="C:\Users\Fran\Documents\VS Code\video-trim\src-tauri\target\release\resources\icon.ico"/>
+        <Icon Id="ProductIcon" SourceFile="C:\Users\Fran\Documents\repos\video-trim\src-tauri\target\release\resources\icon.ico"/>
         <Property Id="ARPPRODUCTICON" Value="ProductIcon" />
         <Property Id="ARPNOREPAIR" Value="yes" Secure="yes" />
         <SetProperty Id="ARPNOMODIFY" Value="1" After="InstallValidate" Sequence="execute"/>
@@ -114,11 +114,11 @@
             </Component>
 
             <Component Id="Path" Guid="edd2f822-2239-5e5b-a4fa-a4468cb0eaba" Win64="$(var.Win64)">
-                <File Id="Path" Source="C:\Users\Fran\Documents\VS Code\video-trim\src-tauri\target\release\app.exe" KeyPath="yes" Checksum="yes"/>
+                <File Id="Path" Source="C:\Users\Fran\Documents\repos\video-trim\src-tauri\target\release\app.exe" KeyPath="yes" Checksum="yes"/>
             </Component>
 
             <Component Id="UninstallCleanupScript" Guid="*">
-                <File Id="UninstallCleanupScriptFile" Source="C:\Users\Fran\Documents\VS Code\video-trim\src-tauri\wix\uninstall-cleanup.ps1" KeyPath="yes" />
+                <File Id="UninstallCleanupScriptFile" Source="C:\Users\Fran\Documents\repos\video-trim\src-tauri\wix\uninstall-cleanup.ps1" KeyPath="yes" />
             </Component>
 
             <Component Id="CMP_UninstallShortcut" Guid="*">
