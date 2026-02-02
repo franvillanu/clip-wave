@@ -1,0 +1,48 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Git Checkout Main",
+      "type": "shell",
+      "command": "git checkout main"
+    },
+    {
+      "label": "Git Pull",
+      "type": "shell",
+      "command": "git pull"
+    },
+    {
+      "label": "Git All",
+      "dependsOn": ["Git Checkout Main", "Git Pull"]
+    },
+    {
+      "label": "Start ClipWave",
+      "type": "shell",
+      "command": "npm run start",
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "env": {}
+      },
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "focus": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "PR: create + merge (squash) + update main + delete branch + build app",
+      "type": "shell",
+      "command": "pwsh -NoProfile -ExecutionPolicy Bypass -File ${workspaceFolder}/scripts/pr-merge-and-build.ps1",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    }
+  ]
+}
