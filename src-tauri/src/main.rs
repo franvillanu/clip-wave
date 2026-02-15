@@ -2,7 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use serde::Serialize;
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -2834,6 +2834,16 @@ fn main() {
             .build(),
         )?;
       }
+
+      // Dynamically size the window to 90% of the monitor height
+      if let Some(window) = app.get_webview_window("main") {
+        if let Some(monitor) = window.current_monitor().unwrap_or(None) {
+          let screen_h = monitor.size().height as f64 / monitor.scale_factor();
+          let target_h = (screen_h * 0.90).min(1050.0).max(600.0);
+          let _ = window.set_size(tauri::LogicalSize::new(950.0, target_h));
+        }
+      }
+
       Ok(())
     })
     .plugin(tauri_plugin_dialog::init())
