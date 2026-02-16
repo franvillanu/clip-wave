@@ -74,6 +74,9 @@ struct ProbeTimingInfo {
 #[derive(Debug, Serialize)]
 struct TrimResult {
   output_path: String,
+  requested_duration_seconds: f64,
+  actual_duration_seconds: Option<f64>,
+  duration_warning: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -1799,6 +1802,26 @@ fn install_ffmpeg_winget() -> Result<(), String> {
   Ok(())
 }
 
+/// Probe the duration of a media file using ffprobe (returns seconds).
+fn probe_duration_ffprobe(ffprobe_path: &Path, file_path: &Path) -> Option<f64> {
+  let mut cmd = Command::new(ffprobe_path);
+  apply_no_window(&mut cmd);
+  let output = cmd
+    .args([
+      "-v", "error",
+      "-show_entries", "format=duration",
+      "-of", "default=noprint_wrappers=1:nokey=1",
+    ])
+    .arg(file_path)
+    .stdin(Stdio::null())
+    .stdout(Stdio::piped())
+    .stderr(Stdio::piped())
+    .output()
+    .ok()?;
+  let stdout = String::from_utf8_lossy(&output.stdout);
+  stdout.trim().parse::<f64>().ok()
+}
+
 fn run_ffprobe_keyframes(
   ffprobe_path: &Path,
   input_path: &str,
@@ -1910,6 +1933,11 @@ fn lossless_preflight_sync(input_path: String, in_time: String, ffmpeg_bin_dir: 
       break;
     }
   }
+
+  // Round keyframe times to millisecond precision (3 decimal places) to avoid
+  // floating-point artifacts propagating into the UI and back into ffmpeg args.
+  let nearest = nearest.map(|v| (v * 1000.0).round() / 1000.0);
+  let next = next.map(|v| (v * 1000.0).round() / 1000.0);
 
   let start_shift_seconds = nearest.map(|kf| {
     if kf <= in_seconds {
@@ -2284,14 +2312,14 @@ fn trim_media(
   let mut cmd = Command::new(ffmpeg_path);
   apply_no_window(&mut cmd);
 
-  // For millisecond precision, pass time as decimal seconds (e.g., "3.170")
-  let in_time_arg = format!("{:.6}", in_seconds_f64);  // Use microsecond precision
+  // For millisecond precision, pass time as decimal seconds (e.g., "3.170000")
+  let in_time_arg = format!("{:.6}", in_seconds_f64);
+  let out_time_arg = format!("{:.6}", out_seconds_f64);
   let duration = out_seconds_f64 - in_seconds_f64;
   let duration_arg = format!("{:.6}", duration);
 
   // CRITICAL: For lossless cuts, -ss MUST be BEFORE -i
   // Use -accurate_seek for precise keyframe seeking
-  // Use -copyts to preserve original timestamps
   cmd.args(["-v", "error", "-accurate_seek", "-ss"])
     .arg(&in_time_arg);
 
@@ -2301,10 +2329,20 @@ fn trim_media(
   }
 
   cmd.args(["-i"])
-    .arg(&input_path)
-    .args(["-t"])
-    .arg(&duration_arg)
-    .args(["-map", "0:v:0"]);
+    .arg(&input_path);
+
+  // CRITICAL: For lossless mode use -to (absolute end time) instead of -t (relative duration).
+  // With -ss before -i, FFmpeg seeks to the nearest keyframe BEFORE the requested time.
+  // Using -t would count the duration from that keyframe, making the output longer than requested.
+  // Using -to ensures the output ends at the correct absolute timestamp.
+  // For exact mode, -t is fine because re-encoding starts from the precise -ss position.
+  if mode == "lossless" {
+    cmd.args(["-to"]).arg(&out_time_arg);
+  } else {
+    cmd.args(["-t"]).arg(&duration_arg);
+  }
+
+  cmd.args(["-map", "0:v:0"]);
 
   if audio_stream_index < 0 {
     cmd.arg("-an");
@@ -2401,8 +2439,26 @@ fn trim_media(
     ));
   }
 
+  // Post-cut: probe actual output duration and warn if it differs significantly
+  let requested_duration = out_seconds_f64 - in_seconds_f64;
+  let actual_duration = probe_duration_ffprobe(&ffprobe_path, &output_path);
+  let duration_warning = actual_duration.and_then(|actual| {
+    let diff = (actual - requested_duration).abs();
+    if diff > 0.5 {
+      Some(format!(
+        "Output duration is {:.1}s (requested {:.1}s, difference {:.1}s). Lossless cuts can only split on keyframes, so the result may be slightly shorter or longer.",
+        actual, requested_duration, diff
+      ))
+    } else {
+      None
+    }
+  });
+
   Ok(TrimResult {
     output_path: output_path.to_string_lossy().to_string(),
+    requested_duration_seconds: requested_duration,
+    actual_duration_seconds: actual_duration,
+    duration_warning,
   })
 }
 

@@ -1397,8 +1397,16 @@ function App() {
       }
 
       setOutputPath(result.output_path)
-      logUser('Cut finished.', 'success')
-      logDebug(`Done. Output: ${result.output_path}`, 'success')
+      if (result.duration_warning) {
+        logUser(`Cut finished. ${result.duration_warning}`, 'error')
+      } else {
+        logUser('Cut finished.', 'success')
+      }
+      if (result.actual_duration_seconds != null) {
+        logDebug(`Done. Output: ${result.output_path} (duration: ${result.actual_duration_seconds.toFixed(1)}s, requested: ${result.requested_duration_seconds.toFixed(1)}s)`, 'success')
+      } else {
+        logDebug(`Done. Output: ${result.output_path}`, 'success')
+      }
     } catch (e) {
       const message = typeof e === 'string' ? e : e?.message ? String(e.message) : String(e)
       logUser('Cut failed.', 'error')
