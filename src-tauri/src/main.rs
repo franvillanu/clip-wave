@@ -2436,6 +2436,10 @@ fn trim_media(
 
     if subtitle_stream_index >= 0 {
       cmd.args(["-c:s", "copy"]);
+      // Subtitle packet durations can extend past the requested cut end
+      // (e.g., a cue that starts before OUT but ends after it). Clamp output
+      // to the shortest mapped stream so Exact mode duration stays precise.
+      cmd.arg("-shortest");
     }
   }
 
