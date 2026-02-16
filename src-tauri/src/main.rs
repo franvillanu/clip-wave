@@ -74,6 +74,9 @@ struct ProbeTimingInfo {
 #[derive(Debug, Serialize)]
 struct TrimResult {
   output_path: String,
+  requested_duration_seconds: f64,
+  actual_duration_seconds: Option<f64>,
+  duration_warning: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -95,6 +98,11 @@ struct LosslessPreflightResult {
   nearest_keyframe_seconds: Option<f64>,
   next_keyframe_seconds: Option<f64>,
   start_shift_seconds: Option<f64>,
+  // OUT point analysis
+  out_time_seconds: Option<f64>,
+  out_prev_keyframe_seconds: Option<f64>,
+  out_next_keyframe_seconds: Option<f64>,
+  end_shift_seconds: Option<f64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -1799,6 +1807,26 @@ fn install_ffmpeg_winget() -> Result<(), String> {
   Ok(())
 }
 
+/// Probe the duration of a media file using ffprobe (returns seconds).
+fn probe_duration_ffprobe(ffprobe_path: &Path, file_path: &Path) -> Option<f64> {
+  let mut cmd = Command::new(ffprobe_path);
+  apply_no_window(&mut cmd);
+  let output = cmd
+    .args([
+      "-v", "error",
+      "-show_entries", "format=duration",
+      "-of", "default=noprint_wrappers=1:nokey=1",
+    ])
+    .arg(file_path)
+    .stdin(Stdio::null())
+    .stdout(Stdio::piped())
+    .stderr(Stdio::piped())
+    .output()
+    .ok()?;
+  let stdout = String::from_utf8_lossy(&output.stdout);
+  stdout.trim().parse::<f64>().ok()
+}
+
 fn run_ffprobe_keyframes(
   ffprobe_path: &Path,
   input_path: &str,
@@ -1861,62 +1889,76 @@ fn run_ffprobe_keyframes(
 }
 
 #[tauri::command]
-async fn lossless_preflight(input_path: String, in_time: String, ffmpeg_bin_dir: String) -> Result<LosslessPreflightResult, String> {
-  tauri::async_runtime::spawn_blocking(move || lossless_preflight_sync(input_path, in_time, ffmpeg_bin_dir))
+async fn lossless_preflight(input_path: String, in_time: String, out_time: String, ffmpeg_bin_dir: String) -> Result<LosslessPreflightResult, String> {
+  tauri::async_runtime::spawn_blocking(move || lossless_preflight_sync(input_path, in_time, out_time, ffmpeg_bin_dir))
     .await
     .map_err(|e| format!("lossless_preflight failed: {e}"))?
 }
 
-fn lossless_preflight_sync(input_path: String, in_time: String, ffmpeg_bin_dir: String) -> Result<LosslessPreflightResult, String> {
+/// Find the last keyframe at or before `target` and the first keyframe at or after `target`.
+fn find_surrounding_keyframes(ffprobe_path: &Path, input_path: &str, target: f64) -> (Option<f64>, Option<f64>) {
+  let windows = [60.0_f64, 600.0_f64, 3600.0_f64];
+
+  // Keyframe before (or at) target
+  let mut prev: Option<f64> = None;
+  for w in windows {
+    let start = (target - w).max(0.0);
+    let read_intervals = format!("{start}%{target}");
+    if let Ok(mut times) = run_ffprobe_keyframes(ffprobe_path, input_path, &read_intervals) {
+      times.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+      if let Some(last) = times.last().copied() {
+        prev = Some(last);
+        break;
+      }
+    }
+  }
+
+  // Keyframe after (or at) target
+  let mut next: Option<f64> = None;
+  for w in windows {
+    let end = target + w;
+    let read_intervals = format!("{target}%{end}");
+    if let Ok(mut times) = run_ffprobe_keyframes(ffprobe_path, input_path, &read_intervals) {
+      times.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+      if let Some(first) = times.into_iter().find(|t| *t + 1e-6 >= target) {
+        next = Some(first);
+        break;
+      }
+    }
+  }
+
+  // Round to millisecond precision
+  let prev = prev.map(|v| (v * 1000.0).round() / 1000.0);
+  let next = next.map(|v| (v * 1000.0).round() / 1000.0);
+  (prev, next)
+}
+
+fn lossless_preflight_sync(input_path: String, in_time: String, out_time: String, ffmpeg_bin_dir: String) -> Result<LosslessPreflightResult, String> {
   ensure_input_file_exists(&input_path)?;
   validate_ffmpeg_bin_dir(&ffmpeg_bin_dir)?;
 
-  // Use parse_hh_mm_ss_with_millis to preserve fractional seconds (e.g., 3.170)
   let in_seconds = parse_hh_mm_ss_with_millis(&in_time)?;
+  let out_seconds = parse_hh_mm_ss_with_millis(&out_time)?;
 
   let (_ffmpeg_path, ffprobe_path, _ffmpeg_bin_dir_used) =
     resolve_ffmpeg_binaries_with_fallback(&ffmpeg_bin_dir);
 
-  if in_seconds <= 0.0 {
-    return Ok(LosslessPreflightResult {
-      in_time_seconds: in_seconds,
-      nearest_keyframe_seconds: Some(0.0),
-      next_keyframe_seconds: Some(0.0),
-      start_shift_seconds: Some(0.0),
-    });
-  }
-
-  let windows = [60.0_f64, 600.0_f64, 3600.0_f64];
-  let mut nearest: Option<f64> = None;
-  for w in windows {
-    let start = (in_seconds - w).max(0.0);
-    let read_intervals = format!("{start}%{in_seconds}");
-    let mut times = run_ffprobe_keyframes(&ffprobe_path, &input_path, &read_intervals)?;
-    times.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-    if let Some(last) = times.last().copied() {
-      nearest = Some(last);
-      break;
-    }
-  }
-
-  let mut next: Option<f64> = None;
-  for w in windows {
-    let end = in_seconds + w;
-    let read_intervals = format!("{in_seconds}%{end}");
-    let mut times = run_ffprobe_keyframes(&ffprobe_path, &input_path, &read_intervals)?;
-    times.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-    if let Some(first) = times.into_iter().find(|t| *t + 1e-6 >= in_seconds) {
-      next = Some(first);
-      break;
-    }
-  }
+  // --- IN point analysis ---
+  let (nearest, next) = if in_seconds <= 0.0 {
+    (Some(0.0), Some(0.0))
+  } else {
+    find_surrounding_keyframes(&ffprobe_path, &input_path, in_seconds)
+  };
 
   let start_shift_seconds = nearest.map(|kf| {
-    if kf <= in_seconds {
-      (in_seconds - kf).max(0.0)
-    } else {
-      0.0
-    }
+    if kf <= in_seconds { (in_seconds - kf).max(0.0) } else { 0.0 }
+  });
+
+  // --- OUT point analysis ---
+  let (out_prev, out_next) = find_surrounding_keyframes(&ffprobe_path, &input_path, out_seconds);
+
+  let end_shift_seconds = out_next.map(|kf| {
+    if kf > out_seconds + 1e-6 { (kf - out_seconds).max(0.0) } else { 0.0 }
   });
 
   Ok(LosslessPreflightResult {
@@ -1924,6 +1966,10 @@ fn lossless_preflight_sync(input_path: String, in_time: String, ffmpeg_bin_dir: 
     nearest_keyframe_seconds: nearest,
     next_keyframe_seconds: next,
     start_shift_seconds,
+    out_time_seconds: Some(out_seconds),
+    out_prev_keyframe_seconds: out_prev,
+    out_next_keyframe_seconds: out_next,
+    end_shift_seconds,
   })
 }
 
@@ -2237,6 +2283,7 @@ fn probe_media(input_path: String, ffmpeg_bin_dir: String) -> Result<ProbeResult
 
 #[tauri::command]
 fn trim_media(
+  window: tauri::Window,
   input_path: String,
   in_time: String,
   out_time: String,
@@ -2264,10 +2311,23 @@ fn trim_media(
     return Err("Mode must be 'lossless' or 'exact'".to_string());
   }
 
-  let output_path = build_output_path(&input_path, &mode, &in_time, &out_time)?;
-  if output_path.exists() {
-    return Err("Output file already exists; choose different times or delete the existing output".to_string());
-  }
+  let output_path = {
+    let base = build_output_path(&input_path, &mode, &in_time, &out_time)?;
+    if !base.exists() {
+      base
+    } else {
+      // Auto-number: file (1), file (2), etc.
+      let stem = base.file_stem().unwrap_or_default().to_string_lossy().to_string();
+      let ext = base.extension().map(|e| e.to_string_lossy().to_string()).unwrap_or_default();
+      let parent = base.parent().unwrap_or_else(|| Path::new("."));
+      let mut numbered = base.clone();
+      for i in 1..=999 {
+        numbered = parent.join(format!("{stem} ({i}).{ext}"));
+        if !numbered.exists() { break; }
+      }
+      numbered
+    }
+  };
 
   let (ffmpeg_path, ffprobe_path, _ffmpeg_bin_dir_used) =
     resolve_ffmpeg_binaries_with_fallback(&ffmpeg_bin_dir);
@@ -2284,27 +2344,39 @@ fn trim_media(
   let mut cmd = Command::new(ffmpeg_path);
   apply_no_window(&mut cmd);
 
-  // For millisecond precision, pass time as decimal seconds (e.g., "3.170")
-  let in_time_arg = format!("{:.6}", in_seconds_f64);  // Use microsecond precision
+  // For millisecond precision, pass time as decimal seconds (e.g., "3.170000")
+  let in_time_arg = format!("{:.6}", in_seconds_f64);
   let duration = out_seconds_f64 - in_seconds_f64;
   let duration_arg = format!("{:.6}", duration);
 
-  // CRITICAL: For lossless cuts, -ss MUST be BEFORE -i
-  // Use -accurate_seek for precise keyframe seeking
-  // Use -copyts to preserve original timestamps
-  cmd.args(["-v", "error", "-accurate_seek", "-ss"])
-    .arg(&in_time_arg);
+  if mode == "lossless" {
+    // LOSSLESS: -ss BEFORE -i for input-level seeking, with -t for duration.
+    // Placing -ss before -i makes FFmpeg seek to the nearest keyframe <= IN
+    // at the demuxer level.  With -c copy the output starts from that keyframe
+    // (so the start may be slightly early), and -t counts from the actual
+    // output start, giving the correct requested duration.
+    //
+    // Previously -ss was placed AFTER -i, which caused -t to count from the
+    // seek point while the output started at the earlier keyframe, inflating
+    // the output duration by the keyframe-to-IN gap.
+    cmd.args(["-v", "error", "-progress", "pipe:1"])
+      .args(["-ss"]).arg(&in_time_arg)
+      .args(["-i"]).arg(&input_path)
+      .args(["-t"]).arg(&duration_arg);
+  } else {
+    // EXACT: -ss BEFORE -i for fast seeking, then re-encode for frame accuracy.
+    cmd.args(["-v", "error", "-progress", "pipe:1", "-accurate_seek", "-ss"])
+      .arg(&in_time_arg);
 
-  if mode == "exact" && rotation_filter.is_some() {
-    // Prevent FFmpeg from auto-applying rotation so we don't rotate twice when we also apply -vf transpose.
-    cmd.arg("-noautorotate");
+    if rotation_filter.is_some() {
+      cmd.arg("-noautorotate");
+    }
+
+    cmd.args(["-i"]).arg(&input_path)
+      .args(["-t"]).arg(&duration_arg);
   }
 
-  cmd.args(["-i"])
-    .arg(&input_path)
-    .args(["-t"])
-    .arg(&duration_arg)
-    .args(["-map", "0:v:0"]);
+  cmd.args(["-map", "0:v:0"]);
 
   if audio_stream_index < 0 {
     cmd.arg("-an");
@@ -2313,7 +2385,10 @@ fn trim_media(
     cmd.args(["-map", &format!("0:a:{audio_stream_index}")]);
   }
 
-  if subtitle_stream_index >= 0 {
+  if subtitle_stream_index >= 0 && mode != "lossless" {
+    // Subtitles are excluded in lossless mode: subtitle packets can span the
+    // cut boundary and force FFmpeg to extend the output duration beyond the
+    // requested range.  Exact mode re-encodes everything so it trims cleanly.
     cmd.args(["-map", &format!("0:{subtitle_stream_index}")]);
   }
 
@@ -2361,16 +2436,21 @@ fn trim_media(
 
     if subtitle_stream_index >= 0 {
       cmd.args(["-c:s", "copy"]);
+      // Subtitle packet durations can extend past the requested cut end
+      // (e.g., a cue that starts before OUT but ends after it). Clamp output
+      // to the shortest mapped stream so Exact mode duration stays precise.
+      cmd.arg("-shortest");
     }
   }
 
-  cmd.arg(&output_path)
+  cmd.arg("-y")
+    .arg(&output_path)
     .stdin(Stdio::null())
     .stdout(Stdio::piped())
     .stderr(Stdio::piped());
 
-  let output = cmd
-    .output()
+  let mut child = cmd
+    .spawn()
     .map_err(|e| {
       if e.kind() == ErrorKind::NotFound {
         "Failed to run ffmpeg: program not found (set FFmpeg bin folder or add ffmpeg to PATH)".to_string()
@@ -2379,8 +2459,38 @@ fn trim_media(
       }
     })?;
 
-  if !output.status.success() {
-    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+  // Read stdout for `-progress pipe:1` output and emit progress events.
+  // FFmpeg writes key=value lines; we parse `out_time_us` for current position.
+  let duration_us = (duration * 1_000_000.0) as i64;
+  if let Some(stdout) = child.stdout.take() {
+    let reader = std::io::BufReader::new(stdout);
+    let mut last_pct: i32 = -1;
+    use std::io::BufRead;
+    for line in reader.lines() {
+      let line = match line { Ok(l) => l, Err(_) => break };
+      if let Some(val) = line.strip_prefix("out_time_us=") {
+        if let Ok(us) = val.trim().parse::<i64>() {
+          let pct = if duration_us > 0 {
+            ((us as f64 / duration_us as f64) * 100.0).round().min(100.0) as i32
+          } else { 0 };
+          if pct != last_pct {
+            last_pct = pct;
+            let _ = window.emit("cut_progress", serde_json::json!({ "percent": pct }));
+          }
+        }
+      }
+    }
+  }
+
+  let status = child.wait().map_err(|e| format!("Failed to wait for ffmpeg: {e}"))?;
+  let stderr_bytes = child.stderr.take().map(|mut s| {
+    let mut buf = Vec::new();
+    let _ = std::io::Read::read_to_end(&mut s, &mut buf);
+    buf
+  }).unwrap_or_default();
+
+  if !status.success() {
+    let stderr = String::from_utf8_lossy(&stderr_bytes).trim().to_string();
     return Err(if stderr.is_empty() {
       "ffmpeg failed".to_string()
     } else {
@@ -2401,8 +2511,26 @@ fn trim_media(
     ));
   }
 
+  // Post-cut: probe actual output duration and warn if it differs significantly
+  let requested_duration = out_seconds_f64 - in_seconds_f64;
+  let actual_duration = probe_duration_ffprobe(&ffprobe_path, &output_path);
+  let duration_warning = actual_duration.and_then(|actual| {
+    let diff = (actual - requested_duration).abs();
+    if diff > 0.5 {
+      Some(format!(
+        "Output duration is {:.1}s (requested {:.1}s, difference {:.1}s). Lossless cuts can only split on keyframes, so the result may be slightly shorter or longer.",
+        actual, requested_duration, diff
+      ))
+    } else {
+      None
+    }
+  });
+
   Ok(TrimResult {
     output_path: output_path.to_string_lossy().to_string(),
+    requested_duration_seconds: requested_duration,
+    actual_duration_seconds: actual_duration,
+    duration_warning,
   })
 }
 

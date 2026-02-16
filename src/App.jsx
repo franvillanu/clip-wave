@@ -530,6 +530,12 @@ function App() {
     nextKeyframeTime: null,
     nextKeyframeDelta: null,
     nextKeyframeSeconds: null,
+    // OUT point
+    endShiftSeconds: null,
+    outNextKeyframeTime: null,
+    outNextKeyframeSeconds: null,
+    outPrevKeyframeTime: null,
+    outPrevKeyframeSeconds: null,
   })
   const [losslessTipExpanded, setLosslessTipExpanded] = useState(false)
   const [isDragOver, setIsDragOver] = useState(false)
@@ -938,11 +944,17 @@ function App() {
 
   const inParsed = useMemo(() => parseHhMmSs(inTime), [inTime])
   const outParsed = useMemo(() => parseHhMmSs(outTime), [outTime])
-  const rangeOk = inParsed.ok && outParsed.ok && outParsed.seconds > inParsed.seconds
+  const isFullVideo = inParsed.ok && outParsed.ok && typeof durationSeconds === 'number' && durationSeconds > 0
+    && inParsed.seconds <= 0.001 && Math.abs(outParsed.seconds - Math.floor(durationSeconds)) < 1
+  const rangeOk = inParsed.ok && outParsed.ok && outParsed.seconds > inParsed.seconds && !isFullVideo
   const inError = inParsed.ok ? '' : inParsed.error
   const outError = outParsed.ok ? '' : outParsed.error
   const rangeError =
-    inputPath && inParsed.ok && outParsed.ok && outParsed.seconds <= inParsed.seconds ? 'OUT must be greater than IN.' : ''
+    inputPath && inParsed.ok && outParsed.ok && outParsed.seconds <= inParsed.seconds
+      ? 'OUT must be greater than IN.'
+      : isFullVideo
+        ? 'Adjust IN or OUT to trim a portion of the video.'
+        : ''
 
   const subsBlocksCut = Boolean(isLoadingSubs) && selectedSubtitleIndex >= 0
   const canCut =
@@ -1030,9 +1042,10 @@ function App() {
         logUser('No subtitles found.', 'info')
       } else {
         setSubsStatus('loaded')
+        // Always default to "No subtitles" — user must explicitly opt in.
+        // Selecting subtitles forces Exact mode since lossless can't trim them.
         if (!touchedSubs) {
-          const pick = pickPreferredSubtitleIndex(subs)
-          if (pick >= 0) setSelectedSubtitleIndex(pick)
+          setSelectedSubtitleIndex(-1)
         }
         logUser(`Loaded ${subs.length} subtitle track(s).`, 'success')
       }
@@ -1294,38 +1307,27 @@ function App() {
       } else {
         const requestId = ++losslessPreflightReqRef.current
 
-        // Always show the modal immediately to avoid flicker
-        setLosslessModal({
-          open: true,
-          checking: true,
-          inTime,
-          outTime,
-          shiftSeconds: null,
-          keyframeTime: null,
-          keyframeSeconds: null,
-          nextKeyframeTime: null,
-          nextKeyframeDelta: null,
-          nextKeyframeSeconds: null,
-          message: '',
-        })
-
+        // Don't show modal during check — only open it if there's an actual issue.
         try {
-          const pre = await invoke('lossless_preflight', { inputPath, inTime, ffmpegBinDir })
+          const pre = await invoke('lossless_preflight', { inputPath, inTime, outTime, ffmpegBinDir })
           if (losslessPreflightReqRef.current !== requestId) return
 
           const shift = typeof pre?.start_shift_seconds === 'number' ? pre.start_shift_seconds : null
           const keyframe = typeof pre?.nearest_keyframe_seconds === 'number' ? pre.nearest_keyframe_seconds : null
           const nextKeyframe = typeof pre?.next_keyframe_seconds === 'number' ? pre.next_keyframe_seconds : null
 
-          if (shift != null && shift > 0.0005 && keyframe != null) {
-            const keyframeLabel = secondsToTimeRounded(keyframe)
-            const nextLabel = nextKeyframe != null ? secondsToTimeRounded(nextKeyframe) : null
+          const hasStartIssue = shift != null && shift > 0.0005 && keyframe != null
+
+          if (hasStartIssue) {
+            const keyframeLabel = keyframe != null ? secondsToTimeRounded(keyframe) : null
+            // Only show "next keyframe" alternative if it's meaningfully different from the current IN
+            const nextIsDifferent = nextKeyframe != null && keyframe != null && Math.abs(nextKeyframe - keyframe) > 0.01
+            const nextLabel = nextIsDifferent ? secondsToTimeRounded(nextKeyframe) : null
             const nextDelta =
-              nextKeyframe != null && inParsed.ok && nextKeyframe > inParsed.seconds
+              nextIsDifferent && inParsed.ok && nextKeyframe > inParsed.seconds
                 ? formatDuration(nextKeyframe - inParsed.seconds)
                 : null
 
-            // Transition to report view
             setLosslessModal({
               open: true,
               checking: false,
@@ -1342,7 +1344,7 @@ function App() {
             return
           }
 
-          // No issue, close modal and proceed
+          // No issue — proceed directly to cut without showing modal
           setLosslessModal({
             open: false,
             checking: false,
@@ -1355,32 +1357,40 @@ function App() {
             nextKeyframeTime: null,
             nextKeyframeDelta: null,
             nextKeyframeSeconds: null,
+            endShiftSeconds: null,
+            outNextKeyframeTime: null,
+            outNextKeyframeSeconds: null,
+            outPrevKeyframeTime: null,
+            outPrevKeyframeSeconds: null,
           })
         } catch (e) {
           if (losslessPreflightReqRef.current !== requestId) return
-          setLosslessModal({
-            open: true,
-            checking: false,
-            inTime,
-            outTime,
-            shiftSeconds: null,
-            keyframeTime: null,
-            keyframeSeconds: null,
-            nextKeyframeTime: null,
-            nextKeyframeDelta: null,
-            nextKeyframeSeconds: null,
-            message: 'Lossless can only cut on keyframes, so the clip may start earlier than IN. Use Exact for frame-accurate start.',
-          })
-          logDebug(`Lossless preflight failed: ${String(e?.message || e)}`, 'error')
-          return
+          // Preflight failed — don't block the cut, just warn and proceed
+          logDebug(`Lossless preflight failed (proceeding anyway): ${String(e?.message || e)}`, 'warn')
         }
       }
     }
 
     setBusyAction('cutting')
-    logUser('Cutting…', 'info')
+    const cuttingLogId = ++statusSeqRef.current
+    setStatusLog((prev) => [{ id: cuttingLogId, ts: Date.now(), kind: 'info', scope: 'user', text: 'Cutting… 0%' }, ...prev].slice(0, 500))
     setOutputPath('')
+
+    // Listen for progress events from backend
+    let unlisten = null
     try {
+      unlisten = await listen('cut_progress', (event) => {
+        const pct = event?.payload?.percent
+        if (typeof pct === 'number') {
+          setStatusLog((prev) => prev.map((entry) =>
+            entry.id === cuttingLogId ? { ...entry, text: `Cutting… ${pct}%` } : entry
+          ))
+        }
+      })
+    } catch (_) { /* listener setup failed, proceed without progress */ }
+
+    try {
+      const cutStart = performance.now()
       const result = await invoke('trim_media', {
         inputPath,
         inTime,
@@ -1390,6 +1400,7 @@ function App() {
         subtitleStreamIndex: selectedSubtitleIndex,
         ffmpegBinDir,
       })
+      const cutSec = ((performance.now() - cutStart) / 1000).toFixed(3)
 
       if (!result?.output_path) {
         logUser('Error: Trim completed but no output path was returned.', 'error')
@@ -1397,13 +1408,20 @@ function App() {
       }
 
       setOutputPath(result.output_path)
-      logUser('Cut finished.', 'success')
-      logDebug(`Done. Output: ${result.output_path}`, 'success')
+      // Update the cutting log entry to show completion
+      setStatusLog((prev) => prev.map((entry) =>
+        entry.id === cuttingLogId ? { ...entry, kind: 'success', text: `Cut finished in ${cutSec}s.` } : entry
+      ))
+      logDebug(`Done in ${cutSec}s. Output: ${result.output_path}`, 'success')
     } catch (e) {
       const message = typeof e === 'string' ? e : e?.message ? String(e.message) : String(e)
-      logUser('Cut failed.', 'error')
+      // Update the cutting log entry to show failure
+      setStatusLog((prev) => prev.map((entry) =>
+        entry.id === cuttingLogId ? { ...entry, kind: 'error', text: 'Cut failed.' } : entry
+      ))
       logDebug(`Error: ${message}`, 'error')
     } finally {
+      if (unlisten) unlisten()
       setBusyAction('idle')
     }
   }
@@ -2196,7 +2214,7 @@ function App() {
                       type="button"
                       className={`vt-segBtn ${mode === 'lossless' ? 'vt-segBtnActive' : ''}`}
                       onClick={() => setMode('lossless')}
-                      disabled={busy}
+                      disabled={busy || selectedSubtitleIndex >= 0}
                     >
                       Lossless
                     </button>
@@ -2260,7 +2278,11 @@ function App() {
                           value={String(selectedSubtitleIndex)}
                           onChange={(e) => {
                             setTouchedSubs(true)
-                            setSelectedSubtitleIndex(Number(e.target.value))
+                            const idx = Number(e.target.value)
+                            setSelectedSubtitleIndex(idx)
+                            if (idx >= 0) {
+                              setMode('exact')
+                            }
                           }}
                           disabled={busy || !inputPath || subsStatus === 'loading'}
                         >
