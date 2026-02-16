@@ -16,7 +16,7 @@
       "dependsOn": ["Git Checkout Main", "Git Pull"]
     },
     {
-      "label": "Start ClipWave",
+      "label": "Dev Server",
       "type": "shell",
       "command": "npm run start",
       "options": {
